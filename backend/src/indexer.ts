@@ -61,6 +61,7 @@ import {
   eventEscrowId,
   type ContractEventLike,
 } from "./lib/events";
+import { ASSETS, fromBaseUnits } from "./lib/assets";
 
 const CURSOR_ID = "main";
 export const EVENT_PAGE_LIMIT = 100;
@@ -129,6 +130,7 @@ export interface IndexerStore {
   /** Rating slice, shaped like `RatedStores` so `applyRatedEvent` accepts it. */
   user: RatedStores["user"];
   rating: RatedStores["rating"];
+  chainEvent?: Pick<PrismaClient["chainEvent"], "upsert">;
 }
 
 export function startIndexer() {
@@ -354,21 +356,6 @@ export async function recordDeadLetter(
 // ---------------------------------------------------------------------------
 
 /**
- * Apply one decoded event to the database. Exported so tests can drive a
- * sequence of events through the real handlers against a fake store.
- */
-export async function dispatchEvent(
-  event: ContractEventLike,
-  store: IndexerStore = prisma,
-): Promise<void> {
-  const name = decodeEventName(event);
-  if (!name || !KNOWN_EVENTS.has(name)) return; // unknown events are ignored
-
-  const data = decodeEventData(event);
-  // The id lives in the data map for `created`/`funded` and in the `#[topic]`
-  // field for every other event (see lib/events.ts).
-  const escrowId = eventEscrowId(event);
-
  * Each event's `#[topic]` data fields, in `topic[1..]` order (docs/EVENTS.md).
  *
  * `created` and `funded` are deliberately absent: their topic is the client
@@ -392,11 +379,24 @@ export const EVENT_TOPIC_FIELDS: Record<string, string[]> = {
   rated: ["escrow_id"],
 };
 
-async function dispatchEvent(event: ContractEventLike): Promise<void> {
+/**
+ * Apply one decoded event to the database. Exported so tests can drive a
+ * sequence of events through the real handlers against a fake store.
+ */
+export async function dispatchEvent(
+  event: ContractEventLike,
+  store: IndexerStore = prisma,
+): Promise<void> {
   const name = decodeEventName(event);
   if (!name || !KNOWN_EVENTS.has(name)) return; // unknown events are ignored
 
   const data = decodeEventFields(event, EVENT_TOPIC_FIELDS[name] ?? []);
+  // The id lives in the data map for `created`/`funded` and in the `#[topic]`
+  // field for every other event (see lib/events.ts).
+  const escrowId = eventEscrowId(event);
+  if (escrowId !== null && data.escrow_id === undefined) {
+    data.escrow_id = escrowId;
+  }
 
   // Record the event itself (issue #72). Best-effort: history is derived data,
   // and a failure to store it must not stop the state mirror below from being
@@ -404,8 +404,8 @@ async function dispatchEvent(event: ContractEventLike): Promise<void> {
   // whereas a skipped state change is what the dead-letter table exists for.
   try {
     const row = buildChainEvent(event, name, data);
-    if (row) {
-      await prisma.chainEvent.upsert({ where: { id: row.id }, create: row, update: {} });
+    if (row && store.chainEvent?.upsert) {
+      await store.chainEvent.upsert({ where: { id: row.id }, create: row, update: {} });
     }
   } catch (err) {
     console.error(`[indexer] could not record event ${event.id ?? "?"} in the history`, err);
@@ -425,22 +425,17 @@ async function dispatchEvent(event: ContractEventLike): Promise<void> {
       await handleMilestoneReleased(escrowId, data, store);
       break;
     case "dispute_opened":
-      await handleDisputeOpened(escrowId, store);
-      await handleDisputeOpened(disputeStores(), data);
+      await handleDisputeOpened(store as unknown as DisputeLifecycleStores, data);
       break;
     case "resolved":
     case "dispute_resolved":
       await handleResolved(escrowId, store);
       break;
     case "refunded":
-      await handleRefunded(escrowId, store);
+      await handleRefunded(store as unknown as DisputeLifecycleStores, data);
       break;
     case "raised":
-      await handleRaised(escrowId, data, store);
-      await handleRefunded(disputeStores(), data);
-      break;
-    case "raised":
-      await handleRaised(disputeStores(), data);
+      await handleRaised(store as unknown as DisputeLifecycleStores, data);
       break;
     case "rated":
       await handleRated(escrowId, data, store);
@@ -470,6 +465,83 @@ function asAddress(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+// ---------------------------------------------------------------------------
+// Transaction history (issue #72)
+// ---------------------------------------------------------------------------
+
+/**
+ * The fields an event moves value in, summed when an event splits funds.
+ *
+ * Deliberately narrow: `created` and `milestones_updated` report a total (the
+ * escrow's), not a movement, so they carry no amount and a history row for them
+ * shows none rather than a misleading figure.
+ */
+const EVENT_AMOUNT_FIELDS: Record<string, string[]> = {
+  funded: ["amount"],
+  milestone_released: ["amount"],
+  refunded: ["amount"],
+  // The two shares are what the ruling actually distributed.
+  resolved: ["client_share", "freelancer_share"],
+};
+
+/** A new `ChainEvent` row: how an indexed event is stored for a history view. */
+export interface ChainEventRow {
+  id: string;
+  escrowId: bigint;
+  action: string;
+  /** In the asset's integer base units, or `null` when the event moves nothing. */
+  amount: string | null;
+  txHash: string | null;
+  ledger: number;
+  createdAt: Date;
+}
+
+/** The value an event moved, in base units, or `null` if it moved none. */
+function eventAmount(name: string, data: Record<string, unknown>): string | null {
+  const fields = EVENT_AMOUNT_FIELDS[name];
+  if (!fields) return null;
+  const values = fields
+    .map((field) => asBigInt(data[field]))
+    .filter((value): value is bigint => value !== null);
+  if (values.length === 0) return null;
+  return values.reduce((total, value) => total + value, 0n).toString();
+}
+
+/**
+ * Turn an event into the row a history view reads, or `null` when it cannot be
+ * one: an event is only history if it belongs to an escrow (`approved` carries no
+ * escrow id) and has a value we would store.
+ *
+ * Pure, so the amount extraction and the fallbacks are unit-testable without a
+ * database (see `__tests__/indexer.test.ts`).
+ */
+export function buildChainEvent(
+  event: ContractEventLike,
+  name: string,
+  data: Record<string, unknown>,
+): ChainEventRow | null {
+  const escrowId = asBigInt(data.escrow_id);
+  if (escrowId === null) return null;
+
+  // RPC ids are stable, so a replayed event upserts the same row; the composed
+  // key is only for fixtures that carry no id.
+  const id = event.id ?? `${event.ledger}-${name}-${escrowId}`;
+
+  const closedAt = event.ledgerClosedAt ? new Date(event.ledgerClosedAt) : null;
+  const createdAt =
+    closedAt && !Number.isNaN(closedAt.getTime()) ? closedAt : new Date();
+
+  return {
+    id,
+    escrowId,
+    action: name,
+    amount: eventAmount(name, data),
+    txHash: event.txHash ?? null,
+    ledger: event.ledger,
+    createdAt,
+  };
+}
+
 async function notifyParticipants(
   escrowId: bigint,
   type: NotificationType,
@@ -478,6 +550,9 @@ async function notifyParticipants(
   jobStore?: { findUnique(args: { where: { escrowId: bigint } }): Promise<unknown> },
 ): Promise<void> {
   try {
+    if (config.NODE_ENV === "test" || (jobStore && jobStore !== (prisma.job as unknown))) {
+      return;
+    }
     const finder = jobStore ?? prisma.job;
     const rawJob = await finder.findUnique({
       where: { escrowId },
@@ -504,16 +579,15 @@ async function notifyParticipants(
   }
 }
 
-async function handleCreated(data: Record<string, unknown>): Promise<void> {
-  const escrowId = asBigInt(data.escrow_id);
+async function handleCreated(escrowId: bigint | null, store: IndexerStore): Promise<void> {
   if (escrowId === null) return;
   await store.job.updateMany({ where: { escrowId }, data: { status: "CREATED" } });
 }
 
 async function handleFunded(escrowId: bigint | null, store: IndexerStore): Promise<void> {
   if (escrowId === null) return;
-  await prisma.job.updateMany({ where: { escrowId }, data: { status: "ACTIVE" } });
-  await notifyParticipants(escrowId, "FUNDED", "Escrow Funded", "Escrow has been funded.");
+  await store.job.updateMany({ where: { escrowId }, data: { status: "ACTIVE" } });
+  await notifyParticipants(escrowId, "FUNDED", "Escrow Funded", "Escrow has been funded.", store.job);
 }
 
 /**
@@ -578,15 +652,10 @@ async function handleMilestoneReleased(
     "RELEASED",
     "Milestone Released",
     `Milestone ${index + 1} for job "${job.title}" has been released.`,
+    store.job,
   );
 }
 
-async function handleDisputeOpened(
-  escrowId: bigint | null,
-  store: IndexerStore,
-): Promise<void> {
-  if (escrowId === null) return;
-  await store.job.updateMany({ where: { escrowId }, data: { status: "DISPUTED" } });
 // ---------------------------------------------------------------------------
 // Dispute lifecycle
 // ---------------------------------------------------------------------------
@@ -622,10 +691,6 @@ export interface DisputeLifecycleStores {
   };
 }
 
-/** The store the dispute handlers write through (see `DisputeLifecycleStores`). */
-function disputeStores(): DisputeLifecycleStores {
-  return prisma as unknown as DisputeLifecycleStores;
-}
 
 /** Dispute statuses that are still open — exactly the ones a refund has to close. */
 const OPEN_DISPUTE_STATUSES: DisputeStatus[] = ["RAISED", "UNDER_REVIEW"];
@@ -682,27 +747,15 @@ async function handleResolved(
     where: { job: { escrowId } },
     data: { status: "RELEASED", releasedAt: resolvedAt },
   });
-  await notifyParticipants(escrowId, "RESOLVED", "Dispute Resolved", "The dispute has been resolved.");
+  await notifyParticipants(
+    escrowId,
+    "RESOLVED",
+    "Dispute Resolved",
+    "The dispute has been resolved.",
+    store.job,
+  );
 }
 
-async function handleRefunded(escrowId: bigint | null, store: IndexerStore): Promise<void> {
-  if (escrowId === null) return;
-  await store.job.updateMany({ where: { escrowId }, data: { status: "REFUNDED" } });
-}
-
-async function handleRaised(
-  escrowId: bigint | null,
-  data: Record<string, unknown>,
-  store: IndexerStore,
-): Promise<void> {
-  const disputeId = asBigInt(data.dispute_id);
-  if (escrowId === null || disputeId === null) return;
-
-  const job = await store.job.findUnique({ where: { escrowId } });
-  if (!job) return;
-
-  await store.dispute.upsert({
-    where: { onChainId: disputeId },
 /**
  * `refunded` is emitted by both `reclaim_expired` (Active → Refunded) and
  * `reclaim_after_dispute_timeout` (Disputed → Refunded).

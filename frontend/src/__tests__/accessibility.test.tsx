@@ -15,12 +15,14 @@ const h = vi.hoisted(() => ({
   },
   api: {
     fetchJobs: vi.fn(async () => []),
+    fetchReminders: vi.fn(async () => []),
   },
 }));
 
 vi.mock("../hooks/wallet-context", () => ({ useWallet: () => h.wallet }));
 vi.mock("../lib/api", () => ({
   fetchJobs: h.api.fetchJobs,
+  fetchReminders: h.api.fetchReminders,
 }));
 
 describe("Accessibility and Keyboard Navigation", () => {

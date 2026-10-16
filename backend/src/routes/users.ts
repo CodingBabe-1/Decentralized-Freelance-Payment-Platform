@@ -209,6 +209,106 @@ const getFreelancersHandler = async (
 usersRouter.get("/freelancers", getFreelancersHandler);
 usersRouter.get("/", getFreelancersHandler);
 
+// GET /api/users/:address/transactions
+//
+// The consolidated history a single action-at-a-time UI never had (issue #72).
+// A user's history is the indexed events on the escrows of the jobs they took
+// part in, newest ledger first. The event's `amount` is returned in whole units
+// of the job's asset (like `Job.totalAmountUsdc`) rather than raw base units, and
+// `txHash` is what the client turns into an explorer link.
+usersRouter.get("/:address/transactions", async (req, res, next) => {
+  try {
+    const address = req.params.address;
+    const jobs = await prisma.job.findMany({
+      where: {
+        OR: [
+          { client: { stellarAddress: address } },
+          { freelancer: { stellarAddress: address } },
+        ],
+      },
+      select: { escrowId: true, asset: true },
+    });
+
+    const assetByEscrow = new Map<string, string>();
+    for (const job of jobs) {
+      if (job.escrowId !== null) assetByEscrow.set(job.escrowId.toString(), job.asset);
+    }
+    const escrowIds = [...assetByEscrow.keys()].map((id) => BigInt(id));
+    if (escrowIds.length === 0) {
+      res.json([]);
+      return;
+    }
+
+    const events = await prisma.chainEvent.findMany({
+      where: { escrowId: { in: escrowIds } },
+      orderBy: { ledger: "desc" },
+      take: 200,
+    });
+
+    res.json(
+      events.map((event) => {
+        const symbol = assetByEscrow.get(event.escrowId.toString()) ?? null;
+        return {
+          id: event.id,
+          escrowId: event.escrowId.toString(),
+          action: event.action,
+          amount: event.amount === null ? null : formatBaseUnitsForAsset(event.amount.toString(), symbol),
+          asset: symbol,
+          txHash: event.txHash,
+          ledger: event.ledger,
+          createdAt: event.createdAt,
+        };
+      }),
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/users/:address/reminders
+//
+// The in-app half of issue #74: the milestones on the address's open jobs whose
+// deadline has passed or is inside the horizon (`?withinHours=`, default from
+// `REMINDER_HORIZON_HOURS`). Derived on read rather than stored, so a reminder
+// cannot go stale and a released milestone stops reminding immediately.
+//
+// Email delivery is not implemented — `User` has no email address — so this is
+// the only channel; `/api/users/:address/reminders` is where a mailer would
+// read from (see lib/reminders.ts).
+usersRouter.get("/:address/reminders", async (req, res, next) => {
+  try {
+    const address = req.params.address;
+    const withinHours = parseHorizonHours(
+      req.query.withinHours,
+      config.REMINDER_HORIZON_HOURS,
+    );
+
+    // Terminal states are excluded: a completed, disputed or refunded escrow has
+    // no deadline left to act on.
+    const jobs = await prisma.job.findMany({
+      where: {
+        status: { in: ["CREATED", "FUNDED", "ACTIVE"] },
+        OR: [
+          { client: { stellarAddress: address } },
+          { freelancer: { stellarAddress: address } },
+        ],
+      },
+      include: {
+        milestones: {
+          where: { status: "PENDING", deadline: { not: null } },
+          orderBy: { index: "asc" },
+        },
+        client: { select: { stellarAddress: true } },
+        freelancer: { select: { stellarAddress: true } },
+      },
+    });
+
+    res.json(buildMilestoneReminders(jobs, address, new Date(), withinHours));
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/users/:address
 usersRouter.get("/:address", async (req, res, next) => {
   try {

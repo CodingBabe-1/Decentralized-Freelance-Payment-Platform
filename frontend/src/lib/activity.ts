@@ -124,3 +124,27 @@ export function summarizeActivity({
     locked: toAssetTotals(locked),
   };
 }
+
+const ACTION_LABELS: Record<string, string> = {
+  created: "Escrow created",
+  funded: "Escrow funded",
+  milestones_updated: "Milestones updated",
+  milestone_released: "Milestone released",
+  dispute_opened: "Dispute opened",
+  raised: "Dispute raised",
+  approved: "Dispute approved",
+  resolved: "Dispute resolved",
+  dispute_resolved: "Dispute resolved",
+  refunded: "Escrow refunded",
+  rated: "Rating submitted",
+};
+
+/**
+ * A readable label for an indexed event name. An event this build does not know
+ * (a contract deployed ahead of the frontend) falls back to its name with the
+ * underscores opened up rather than being hidden.
+ */
+export function actionLabel(action: string): string {
+  return ACTION_LABELS[action] ?? action.replace(/_/g, " ");
+}
+

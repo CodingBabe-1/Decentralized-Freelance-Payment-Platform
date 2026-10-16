@@ -19,25 +19,22 @@ import Layout from "../components/Layout";
 import StatusBadge from "../components/StatusBadge";
 import AddressField from "../components/AddressField";
 import FiatEstimate from "../components/FiatEstimate";
-import { fetchJobs, type JobApi } from "../lib/api";
+import JobListSkeleton from "../components/JobListSkeleton";
+import { fetchJobs, fetchReminders, type JobApi, type ReminderApi } from "../lib/api";
 import { SKILL_TAGS, tagLabel } from "../lib/tags";
 import { useSavedJobs } from "../hooks/useSavedJobs";
 import { useWallet } from "../hooks/wallet-context";
 import { parseEscrowId } from "../lib/escrowId";
+import { formatDate, formatRemaining } from "../lib/time";
 
 const PAGE_SIZE = 10;
 const STATUSES = ["CREATED", "FUNDED", "ACTIVE", "COMPLETED", "DISPUTED", "REFUNDED"];
 
 export default function Dashboard() {
   const { publicKey, connecting, connect, error: walletError } = useWallet();
-  // Per-job unread counts, so a job with a new message is visible from the list
-  // without opening it (issue #64).
-  const { byJob } = useUnread();
   const [jobId, setJobId] = useState("");
   const [jobIdError, setJobIdError] = useState<string | null>(null);
   const navigate = useNavigate();
-
-  const unreadFor = (id: string) => byJob.find((entry) => entry.jobId === id)?.count ?? 0;
 
   const [status, setStatus] = useState("");
   const [tag, setTag] = useState("");
@@ -48,6 +45,7 @@ export default function Dashboard() {
   const [hasMore, setHasMore] = useState(false);
   const [jobsLoading, setJobsLoading] = useState(false);
   const [jobsError, setJobsError] = useState<string | null>(null);
+  const [reminders, setReminders] = useState<ReminderApi[]>([]);
 
   // What actually renders: the bookmark list when "Saved only" is on (it is
   // returned complete), otherwise the paginated API list.
@@ -242,17 +240,49 @@ export default function Dashboard() {
       )}
 
       {(jobsError || savedError) && (
-        <p role="alert" className="alert alert-error">
-          {jobsError ?? savedError}
-        </p>
+        <div className="error-state">
+          <p role="alert" className="alert alert-error">
+            {jobsError ?? savedError}
+          </p>
+          <button
+            type="button"
+            className="btn-retry"
+            onClick={() => void load(page, false)}
+          >
+            Retry
+          </button>
+        </div>
       )}
 
-      {jobsLoading && visibleJobs.length === 0 && <p>Loading jobs…</p>}
+      {jobsLoading && visibleJobs.length === 0 && <JobListSkeleton />}
 
       {!jobsLoading && !jobsError && visibleJobs.length === 0 && (
-        <p className="muted">
-          {savedOnly ? "No saved jobs yet." : "No jobs found."}
-        </p>
+        savedOnly ? (
+          <p className="muted" role="status" aria-live="polite">
+            No saved jobs yet.
+          </p>
+        ) : (
+          <div className="empty-state card" role="status" aria-live="polite">
+            <div className="empty-state-icon" aria-hidden="true">
+              📋
+            </div>
+            <h3>No jobs found.</h3>
+            <p className="muted">
+              {status
+                ? `No jobs match the "${status}" status filter.`
+                : "No jobs have been posted yet. Create a new job to get started."}
+            </p>
+            {status ? (
+              <button type="button" onClick={() => setStatus("")}>
+                Clear filter
+              </button>
+            ) : (
+              <Link to="/post" className="btn-primary">
+                Post a job →
+              </Link>
+            )}
+          </div>
+        )
       )}
 
       {visibleJobs.length > 0 && (

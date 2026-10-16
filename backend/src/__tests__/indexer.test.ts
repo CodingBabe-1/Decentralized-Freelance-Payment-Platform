@@ -5,7 +5,6 @@ import {
   decodeEventData,
   decodeEventFields,
   decodeEventName,
-  eventEscrowId,
   type ContractEventLike,
 } from "../lib/events";
 import {
@@ -13,12 +12,14 @@ import {
   EVENT_TOPIC_FIELDS,
   applyRatedEvent,
   buildChainEvent,
+  dispatchEvent,
   handleDisputeOpened,
   handleRaised,
   handleRefunded,
   processContractEvents,
   resolveStartLedger,
   type DisputeLifecycleStores,
+  type IndexerStore,
   type RatedStores,
 } from "../indexer";
 
@@ -845,13 +846,19 @@ function makeStore(jobs: FakeJob[], ratings: FakeRatingRow[] = []): IndexerStore
         where,
         create,
       }: {
-        where: { onChainId: bigint };
+        where: { onChainId?: bigint; jobId?: string };
         create: Partial<FakeDispute> & { jobId: string };
       }) => {
         const existing = jobs
           .flatMap((job) => job.disputes)
-          .find((dispute) => dispute.onChainId === where.onChainId);
-        if (existing) return existing;
+          .find((dispute) =>
+            where.jobId ? dispute.jobId === where.jobId : dispute.onChainId === where.onChainId,
+          );
+        if (existing) {
+          if (create.onChainId !== undefined) existing.onChainId = create.onChainId;
+          if (create.raisedByAddress) existing.raisedByAddress = create.raisedByAddress;
+          return existing;
+        }
         const job = byId(create.jobId);
         if (!job) throw new Error(`no job ${create.jobId}`);
         const created: FakeDispute = {
@@ -1126,6 +1133,9 @@ describe("dispatchEvent", () => {
     await dispatchEvent(makeTopicEvent("refunded", 999n), makeStore(jobs));
 
     expect(jobs).toEqual(before);
+  });
+});
+
 /**
  * In-memory stand-in for the store the dispute-lifecycle handlers write through,
  * so `dispute_opened → raised → refunded` can be driven end to end without a

@@ -10,6 +10,8 @@
 
 #![cfg(test)]
 
+extern crate std;
+
 use crate::{EscrowContract, EscrowContractClient, EscrowError, EscrowStatus, Milestone};
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger},

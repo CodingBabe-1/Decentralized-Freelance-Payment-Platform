@@ -16,7 +16,6 @@
 
 import { Router } from "express";
 import { z } from "zod";
-import type { JobStatus } from "@prisma/client";
 import { prisma } from "../db";
 import { requireAuth } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -29,7 +28,7 @@ import {
   UnknownAssetError,
   type AssetInfo,
 } from "../lib/assets";
-import { createJobSchema } from "../lib/schemas";
+import { createJobSchema, assignJobSchema, listJobsQuerySchema } from "../lib/schemas";
 import { isSkillTag, SKILL_TAGS, SKILL_TAG_SLUGS } from "../lib/tags";
 
 export const jobsRouter = Router();
@@ -42,7 +41,11 @@ export const jobsRouter = Router();
 // was unbounded.
 jobsRouter.get("/", async (req, res, next) => {
   try {
-    const { status, client, freelancer, tag, page = "1", limit = "20" } = req.query;
+    const parsed = listJobsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      throw new AppError(400, parsed.error.issues.map((i) => i.message).join(", "));
+    }
+    const { status, client, freelancer, tag, page, limit } = parsed.data;
 
     // A tag the taxonomy does not know is a caller mistake, not "no results" —
     // answering 400 with the accepted slugs keeps a typo from looking like an
@@ -58,9 +61,9 @@ jobsRouter.get("/", async (req, res, next) => {
 
     const jobs = await prisma.job.findMany({
       where: {
-        ...(status ? { status: String(status) as JobStatus } : {}),
-        ...(client ? { client: { stellarAddress: String(client) } } : {}),
-        ...(freelancer ? { freelancer: { stellarAddress: String(freelancer) } } : {}),
+        ...(status ? { status } : {}),
+        ...(client ? { client: { stellarAddress: client } } : {}),
+        ...(freelancer ? { freelancer: { stellarAddress: freelancer } } : {}),
         // Postgres array containment: a job matches when its tags include this one.
         ...(tagFilter ? { tags: { has: tagFilter } } : {}),
       },

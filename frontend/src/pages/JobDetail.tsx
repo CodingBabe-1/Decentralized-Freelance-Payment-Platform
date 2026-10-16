@@ -33,6 +33,8 @@ import Layout from "../components/Layout";
 import StatusBadge from "../components/StatusBadge";
 import AddressField from "../components/AddressField";
 import FiatEstimate from "../components/FiatEstimate";
+import JobDetailSkeleton from "../components/JobDetailSkeleton";
+import Conversation from "../components/Conversation";
 import { useEscrow, type EscrowView } from "../hooks/useEscrow";
 import { useWallet } from "../hooks/wallet-context";
 import { explorerTxUrl } from "../lib/stellar";

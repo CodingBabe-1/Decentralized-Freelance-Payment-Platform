@@ -190,11 +190,9 @@ describe("POST /api/reputation — duplicate rating handling", () => {
     h.rating.findUnique.mockResolvedValue(null);
     // Override the SDK mock to return a simulation error for this test only.
     const { SorobanRpc } = await import("@stellar/stellar-sdk");
-    const originalServer = SorobanRpc.Server;
-    const { Account } = await import("@stellar/stellar-sdk");
     // Re-mock just the simulation method to return an error.
     vi.spyOn(
-      (SorobanRpc as unknown as { Server: typeof originalServer }).Server.prototype,
+      SorobanRpc.Server.prototype,
       "simulateTransaction",
     ).mockResolvedValueOnce({ error: "HostError: Error(Contract, #5)" } as never);
 

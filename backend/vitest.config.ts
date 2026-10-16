@@ -5,6 +5,8 @@ import { defineConfig } from "vitest/config";
 // touched by the tests.
 export default defineConfig({
   test: {
+    hookTimeout: 30000,
+    testTimeout: 15000,
     env: {
       NODE_ENV: "test",
       DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/test",

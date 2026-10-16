@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { fromBaseUnits, getAsset, toBaseUnits, UnknownAssetError } from "../lib/assets";
 import {
   formatAmount,
   formatBaseUnitsForAsset,
+  fromBaseUnits,
   getAsset,
   sumAmounts,
   toBaseUnits,
@@ -47,6 +47,9 @@ describe("fromBaseUnits", () => {
 
   it("handles an asset with no fractional part", () => {
     expect(fromBaseUnits(1_000n, 0)).toBe("1000");
+  });
+});
+
 describe("exact money arithmetic", () => {
   const decimals = getAsset("USDC").decimals;
 

@@ -31,7 +31,6 @@ import { createJobSchema } from "./lib/schemas";
 import { authSchema, updateSchema } from "./routes/users";
 import {
   buildCreateSchema,
-  editableMilestoneSchema,
   recordMilestonesSchema,
   releaseSchema,
   syncSchema as escrowSyncSchema,
@@ -171,7 +170,7 @@ const unsignedTransaction = registry.register(
   }),
 );
 
-const apiError = registry.register(
+export const apiError = registry.register(
   "ApiError",
   z.object({ error: z.string() }),
 );
@@ -260,6 +259,110 @@ registry.registerPath({
   },
 });
 
+const freelancerProfile = z.object({
+  id: z.string(),
+  stellarAddress: z.string(),
+  displayName: z.string().nullable(),
+  bio: z.string().nullable(),
+  createdAt: z.date().or(z.string()),
+  averageScore: z.number(),
+  totalRatings: z.number().int(),
+  completedJobsCount: z.number().int(),
+  totalJobsCount: z.number().int(),
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/users/freelancers",
+  tags: ["Users"],
+  summary: "Browse freelancers directory",
+  responses: {
+    200: json(
+      z.object({
+        freelancers: z.array(freelancerProfile),
+        total: z.number().int(),
+        page: z.number().int(),
+        limit: z.number().int(),
+        totalPages: z.number().int(),
+      }),
+      "Directory page",
+    ),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/users",
+  tags: ["Users"],
+  summary: "Browse freelancers directory (alias)",
+  responses: {
+    200: json(
+      z.object({
+        freelancers: z.array(freelancerProfile),
+        total: z.number().int(),
+        page: z.number().int(),
+        limit: z.number().int(),
+        totalPages: z.number().int(),
+      }),
+      "Directory page",
+    ),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/users/{address}/transactions",
+  tags: ["Users"],
+  summary: "On-chain history for the user's escrows",
+  request: { params: z.object({ address: z.string() }) },
+  responses: {
+    200: json(
+      z.array(
+        z.object({
+          id: z.string(),
+          escrowId: z.string(),
+          action: z.string(),
+          amount: z.string().nullable(),
+          asset: z.string().nullable(),
+          txHash: z.string().nullable(),
+          ledger: z.number().int(),
+          createdAt: z.string().datetime(),
+        }),
+      ),
+      "Transaction history events",
+    ),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/users/{address}/reminders",
+  tags: ["Users"],
+  summary: "Milestones that are due soon or overdue",
+  request: {
+    params: z.object({ address: z.string() }),
+    query: z.object({ withinHours: z.coerce.number().optional() }),
+  },
+  responses: {
+    200: json(
+      z.array(
+        z.object({
+          jobId: z.string(),
+          title: z.string(),
+          escrowId: z.string().nullable(),
+          milestoneIndex: z.number().int(),
+          description: z.string().nullable(),
+          amount: z.string(),
+          deadline: z.string(),
+          kind: z.enum(["overdue", "due-soon"]),
+          role: z.enum(["client", "freelancer"]),
+        }),
+      ),
+      "Milestone reminders",
+    ),
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Jobs
 // ---------------------------------------------------------------------------
@@ -319,6 +422,59 @@ registry.registerPath({
     200: json(job, "The updated job"),
     401: errors[401],
     403: errors[403],
+    404: errors[404],
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/jobs/tags",
+  tags: ["Jobs"],
+  summary: "Curated skill tags list",
+  responses: {
+    200: json(
+      z.array(z.object({ slug: z.string(), label: z.string() })),
+      "Skill tags list",
+    ),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/jobs/saved",
+  tags: ["Jobs"],
+  summary: "Get bookmarked jobs for the authenticated user",
+  security: auth,
+  responses: {
+    200: json(z.array(job), "Bookmarked jobs"),
+    401: errors[401],
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/jobs/{id}/save",
+  tags: ["Jobs"],
+  summary: "Bookmark a job",
+  security: auth,
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: json(z.object({ saved: z.boolean() }), "Bookmark created"),
+    401: errors[401],
+    404: errors[404],
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/api/jobs/{id}/save",
+  tags: ["Jobs"],
+  summary: "Remove a job bookmark",
+  security: auth,
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: json(z.object({ saved: z.boolean() }), "Bookmark removed"),
+    401: errors[401],
     404: errors[404],
   },
 });
@@ -413,6 +569,19 @@ registry.registerPath({
     body: { content: { "application/json": { schema: escrowSyncSchema } } },
   },
   responses: { 200: json(job, "The updated job"), 401: errors[401], 404: errors[404] },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/escrow/{escrowId}/receipt",
+  tags: ["Escrow"],
+  summary: "Get escrow receipt",
+  request: { params: z.object({ escrowId: z.string() }) },
+  responses: {
+    200: json(z.record(z.unknown()), "Escrow receipt"),
+    400: errors[400],
+    404: errors[404],
+  },
 });
 
 // ---------------------------------------------------------------------------
@@ -518,6 +687,17 @@ registry.registerPath({
       z.object({ address: z.string(), averageScore: z.number(), totalRatings: z.number().int() }),
       "The aggregate",
     ),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/reputation/{address}/ratings",
+  tags: ["Reputation"],
+  summary: "List ratings received by address",
+  request: { params: z.object({ address: z.string() }) },
+  responses: {
+    200: json(z.array(rating), "List of ratings"),
   },
 });
 

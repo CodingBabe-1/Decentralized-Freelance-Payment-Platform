@@ -61,6 +61,9 @@ export function fromBaseUnits(base: bigint, decimals: number): string {
     decimals > 0 ? digits.slice(digits.length - decimals).replace(/0+$/, "") : "";
   const value = fraction ? `${whole}.${fraction}` : whole;
   return negative ? `-${value}` : value;
+}
+
+/**
  * Sum decimal amounts exactly, returning the total in the asset's integer base
  * units.
  *

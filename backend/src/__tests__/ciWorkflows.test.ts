@@ -31,7 +31,7 @@ function workflows(): Workflow[] {
     .filter((file) => file.endsWith(".yml") || file.endsWith(".yaml"))
     .map((file) => ({
       name: file,
-      lines: readFileSync(path.join(dir, file), "utf8").split("\n"),
+      lines: readFileSync(path.join(dir, file), "utf8").split(/\r?\n/),
     }));
 }
 

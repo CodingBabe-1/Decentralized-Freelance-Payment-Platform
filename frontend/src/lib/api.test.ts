@@ -1,14 +1,25 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   authenticate,
   buildJobsQuery,
+  clearAuthToken,
   createDispute,
   createJob,
+  fetchMessages,
+  fetchRatingsReceived,
+  fetchReceipt,
+  fetchReminders,
   fetchSavedJobs,
+  fetchTransactions,
+  fetchUnreadCounts,
+  fetchUserJobs,
   linkDisputeId,
+  markMessagesRead,
   saveJob,
+  sendMessage,
   submitRating,
   unsaveJob,
+  type JobApi,
 } from "./api";
 
 describe("buildJobsQuery", () => {

@@ -14,9 +14,7 @@
 
 import { BrowserRouter, Link, Route, Routes } from "react-router-dom";
 import { WalletProvider } from "./hooks/WalletProvider";
-import { ToastProvider } from "./hooks/ToastProvider";
 import { useWallet } from "./hooks/wallet-context";
-import { useUnread } from "./hooks/useUnread";
 import AddressField from "./components/AddressField";
 import NotificationsBell from "./components/NotificationsBell";
 import Dashboard from "./pages/Dashboard";
@@ -29,9 +27,6 @@ import FreelancerDirectory from "./pages/FreelancerDirectory";
 
 function Nav() {
   const { publicKey, connecting, connect, disconnect } = useWallet();
-  // Unread messages are the one thing a user cannot see from the current page,
-  // so the total lives in the nav (issue #64).
-  const { total: unread } = useUnread();
   return (
     <nav className="nav" aria-label="Main navigation">
       <Link to="/">My Jobs</Link>

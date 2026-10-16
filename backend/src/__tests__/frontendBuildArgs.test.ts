@@ -26,7 +26,7 @@ function repoFile(...segments: string[]): string {
     existsSync(path.join(dir, "docker-compose.yml")),
   );
   if (!root) throw new Error(`repo root not found from ${cwd}`);
-  return readFileSync(path.join(root, ...segments), "utf8");
+  return readFileSync(path.join(root, ...segments), "utf8").replace(/\r/g, "");
 }
 
 /** `ARG VITE_…` names declared in the frontend Dockerfile. */

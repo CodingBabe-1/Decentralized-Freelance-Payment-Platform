@@ -86,7 +86,6 @@ export interface JobApi {
   freelancer?: { stellarAddress: string } | null;
   /** Present on the list/detail responses; used by the activity summary (#73). */
   milestones?: JobMilestoneApi[];
-  createdAt?: string;
 }
 
 /** Fetch a page of jobs. Throws on a non-2xx response. */
@@ -652,4 +651,81 @@ export async function fetchFreelancers(
   }
   return data as FreelancersResponse;
 }
+
+// ---------------------------------------------------------------------------
+// Messaging (issue #64)
+// ---------------------------------------------------------------------------
+
+/**
+ * A job-scoped message. `jobId` is the off-chain job id, not the escrow id, and
+ * `sender` is included by the conversation endpoint so the view can tell the two
+ * parties apart without a second lookup.
+ */
+export interface MessageApi {
+  id: string;
+  jobId: string;
+  senderId: string;
+  body: string;
+  createdAt: string;
+  /** Set once the recipient has read it; `null` means unread. */
+  readAt: string | null;
+  sender?: { stellarAddress: string; displayName?: string | null };
+}
+
+/** Unread counts for the authenticated user: a total, and one per job. */
+export interface UnreadCounts {
+  total: number;
+  byJob: { jobId: string; count: number }[];
+}
+
+/**
+ * Read a job's conversation. Only the job's two participants may call this; a
+ * third party gets a 403 from the API.
+ */
+export async function fetchMessages(jobId: string, token: string): Promise<MessageApi[]> {
+  const res = await fetch(`${API_BASE_URL}/api/messages/${encodeURIComponent(jobId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Could not load the conversation (HTTP ${res.status})`);
+  return (await res.json()) as MessageApi[];
+}
+
+/** Send a message to the job's other participant. */
+export async function sendMessage(
+  jobId: string,
+  body: string,
+  token: string,
+): Promise<MessageApi> {
+  const res = await fetch(`${API_BASE_URL}/api/messages/${encodeURIComponent(jobId)}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ body }),
+  });
+  if (!res.ok) throw new Error(`Could not send the message (HTTP ${res.status})`);
+  return (await res.json()) as MessageApi;
+}
+
+/** Mark the other party's messages in this job read; returns how many changed. */
+export async function markMessagesRead(jobId: string, token: string): Promise<number> {
+  const res = await fetch(
+    `${API_BASE_URL}/api/messages/${encodeURIComponent(jobId)}/read`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) throw new Error(`Could not update read state (HTTP ${res.status})`);
+  const { markedRead } = (await res.json()) as { markedRead: number };
+  return markedRead;
+}
+
+/** Total unread messages, plus one count per job, for the authenticated user. */
+export async function fetchUnreadCounts(token: string): Promise<UnreadCounts> {
+  const res = await fetch(`${API_BASE_URL}/api/messages/unread`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Could not load unread counts (HTTP ${res.status})`);
+  return (await res.json()) as UnreadCounts;
+}
+
 

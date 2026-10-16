@@ -22,6 +22,7 @@ const h = vi.hoisted(() => ({
     disconnect: vi.fn(),
   },
   fetchJobs: vi.fn(),
+  fetchReminders: vi.fn(async () => [] as unknown[]),
   // The bookmark list is authenticated and loaded when a wallet connects (#71).
   authenticate: vi.fn(async () => "jwt-1"),
   fetchSavedJobs: vi.fn(async () => [] as unknown[]),
@@ -45,6 +46,7 @@ vi.mock("../lib/prices", async (importOriginal) => ({
 }));
 vi.mock("../lib/api", () => ({
   fetchJobs: h.fetchJobs,
+  fetchReminders: h.fetchReminders,
   authenticate: h.authenticate,
   fetchSavedJobs: h.fetchSavedJobs,
   saveJob: h.saveJob,
@@ -52,7 +54,7 @@ vi.mock("../lib/api", () => ({
 }));
 
 import Dashboard from "./Dashboard";
-import type { JobApi } from "../lib/api";
+import type { JobApi, ReminderApi } from "../lib/api";
 import { SKILL_TAGS } from "../lib/tags";
 
 const CLIENT = "GBPLJHDI6RPLS4EEJJTM7EVEV3UNTXLFAACWA63QSTHGLWH5RO3LQ75B";
@@ -95,6 +97,8 @@ beforeEach(() => {
   h.navigate.mockClear();
   h.fetchJobs.mockReset();
   h.fetchJobs.mockResolvedValue([]);
+  h.fetchReminders.mockReset();
+  h.fetchReminders.mockResolvedValue([]);
   h.fetchSavedJobs.mockReset();
   h.fetchSavedJobs.mockResolvedValue([]);
   h.saveJob.mockClear();

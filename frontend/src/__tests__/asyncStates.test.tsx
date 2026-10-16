@@ -31,6 +31,7 @@ const h = vi.hoisted(() => ({
     createDispute: vi.fn(),
     linkDisputeId: vi.fn(),
     submitRating: vi.fn(),
+    fetchReminders: vi.fn(async () => []),
   },
 }));
 
@@ -38,6 +39,7 @@ vi.mock("../hooks/wallet-context", () => ({ useWallet: () => h.wallet }));
 vi.mock("../hooks/useEscrow", () => ({ useEscrow: () => h.escrow }));
 vi.mock("../lib/api", () => ({
   fetchJobs: h.api.fetchJobs,
+  fetchReminders: h.api.fetchReminders,
   authenticate: h.api.authenticate,
   createDispute: h.api.createDispute,
   linkDisputeId: h.api.linkDisputeId,
