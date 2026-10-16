@@ -57,6 +57,15 @@ export function createApp() {
     app.set("trust proxy", config.TRUST_PROXY);
   }
 
+  // OpenAPI description + explorer (issue #61). Mounted ahead of helmet because
+  // the bundled Swagger UI bootstraps itself with an inline script, which
+  // helmet's default Content-Security-Policy would block. The routes are only
+  // registered outside production, so a deployed instance exposes neither.
+  if (docsEnabled) {
+    app.get("/api/docs/openapi.json", (_req, res) => res.json(openApiDocument));
+    app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(openApiDocument));
+  }
+
   app.use(helmet());
 
   // CORS_ORIGIN is a comma-separated allowlist of browser origins. When it is

@@ -73,9 +73,6 @@ services:
         # through the frontend container's nginx reverse proxy to http://backend:3000
         VITE_API_URL: ${VITE_API_URL:-}
         VITE_NETWORK: ${VITE_NETWORK:-testnet}
-        # Point the containerised app at a non-local API (defaults to
-        # http://localhost:3000 inside the bundle otherwise).
-        VITE_API_URL: ${VITE_API_URL:-}
         VITE_ESCROW_CONTRACT_ID: ${VITE_ESCROW_CONTRACT_ID:-}
         VITE_DISPUTE_CONTRACT_ID: ${VITE_DISPUTE_CONTRACT_ID:-}
         VITE_REPUTATION_CONTRACT_ID: ${VITE_REPUTATION_CONTRACT_ID:-}

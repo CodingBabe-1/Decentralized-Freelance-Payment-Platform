@@ -119,6 +119,9 @@ function toBigInt(value: unknown): bigint | null {
  */
 export function eventEscrowId(event: ContractEventLike): bigint | null {
   return toBigInt(decodeEventData(event).escrow_id) ?? toBigInt(decodeEventTopic(event));
+}
+
+/**
  * The decoded values of `topic[1..]` — the event's `#[topic]` fields, in the
  * order the struct declares them (there is at most one today). A field that
  * cannot be decoded becomes `undefined` rather than throwing.

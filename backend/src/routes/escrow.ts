@@ -24,7 +24,6 @@ import {
   SorobanRpc,
   TransactionBuilder,
   BASE_FEE,
-  xdr,
 } from "@stellar/stellar-sdk";
 import { config } from "../config";
 import { buildCreateArgs, buildUpdateMilestonesArgs } from "../lib/escrowArgs";
@@ -64,7 +63,10 @@ const networkPassphrase =
  */
 const escrowIdSchema = z.number().int().nonnegative();
 
-async function buildTx(sourceAddress: string, operation: any): Promise<string> {
+async function buildTx(
+  sourceAddress: string,
+  operation: Parameters<TransactionBuilder["addOperation"]>[0],
+): Promise<string> {
   const account = await server.getAccount(sourceAddress);
   const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase })
     .addOperation(operation)
@@ -167,7 +169,7 @@ export const editableMilestoneSchema = z.object({
 // while the escrow is still unfunded. The route takes whole-unit amounts and
 // encodes them exactly like `build/create`, so both paths produce identical
 // arguments for the same edit.
-const updateMilestonesSchema = z.object({
+export const updateMilestonesSchema = z.object({
   escrowId: escrowIdSchema,
   milestones: z.array(editableMilestoneSchema).min(1),
 });
@@ -316,7 +318,7 @@ escrowRouter.post("/build/fund", requireAuth, validate(z.object({ escrowId: escr
 });
 
 // POST /api/escrow/build/release
-const releaseSchema = z.object({ escrowId: escrowIdSchema, milestoneIndex: z.number().int().min(0) });
+export const releaseSchema = z.object({ escrowId: escrowIdSchema, milestoneIndex: z.number().int().min(0) });
 
 escrowRouter.post("/build/release", requireAuth, validate(releaseSchema), async (req, res, next) => {
   try {
@@ -379,7 +381,7 @@ escrowRouter.post(
 );
 
 // POST /api/escrow/sync/:jobId — called by frontend after tx confirmed
-const syncSchema = z.object({ escrowId: escrowIdSchema });
+export const syncSchema = z.object({ escrowId: escrowIdSchema });
 
 escrowRouter.post("/sync/:jobId", requireAuth, validate(syncSchema), async (req, res, next) => {
   try {

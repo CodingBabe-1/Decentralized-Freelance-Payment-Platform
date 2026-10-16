@@ -184,6 +184,7 @@ describe("POST /api/escrow/sync/:jobId — escrowId validation", () => {
   });
 
   it("records a well-formed id", async () => {
+    h.job.findUnique.mockResolvedValue({ id: "job_1", client: { stellarAddress: CLIENT } });
     h.job.update.mockResolvedValue({ id: "job_1", escrowId: 7n, status: "FUNDED" });
 
     const res = await post("/sync/job_1", { escrowId: 7 });

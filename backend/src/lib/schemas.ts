@@ -7,7 +7,9 @@
  */
 
 import { z } from "zod";
+import { JobStatus } from "@prisma/client";
 import { isSkillTag, MAX_JOB_TAGS, SKILL_TAG_SLUGS } from "./tags";
+import { isValidStellarAddress } from "./stellarAddress";
 
 /**
  * A milestone amount: a positive number, or a positive decimal string.
@@ -59,5 +61,32 @@ export const assignJobSchema = z.object({
   freelancerAddress: z
     .string()
     .refine(isValidStellarAddress, "Invalid Stellar address"),
+});
+
+/** Default page size for `GET /api/jobs` when `limit` is omitted. */
+export const DEFAULT_PAGE_SIZE = 20;
+
+/** Upper bound on `limit`, so one request cannot ask for the whole table. */
+export const MAX_PAGE_SIZE = 100;
+
+/**
+ * Query string for `GET /api/jobs`.
+ *
+ * Every value arrives as a string (or an array of strings), so `page` and
+ * `limit` are coerced to positive integers and `status` is checked against the
+ * Prisma enum. Without this, `Number("abc")` became `NaN` in `skip`/`take`
+ * (Prisma rejects it, surfacing a 500), an unknown status threw inside Prisma
+ * (again a 500), and `limit` was unbounded. A bad value is now a 400.
+ *
+ * `status` uses `nativeEnum` rather than a hand-copied list so it cannot drift
+ * from `JobStatus` in `schema.prisma`.
+ */
+export const listJobsQuerySchema = z.object({
+  status: z.nativeEnum(JobStatus).optional(),
+  client: z.string().optional(),
+  freelancer: z.string().optional(),
+  tag: z.string().optional(),
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
 });
 
