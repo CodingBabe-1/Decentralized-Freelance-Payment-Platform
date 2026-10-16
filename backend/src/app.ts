@@ -1,4 +1,4 @@
-import express from "express";
+import express, { type RequestHandler } from "express";
 import helmet from "helmet";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
@@ -16,6 +16,39 @@ import { escrowRouter } from "./routes/escrow";
 import { disputesRouter } from "./routes/disputes";
 import { reputationRouter } from "./routes/reputation";
 import { notificationsRouter } from "./routes/notifications";
+
+/**
+ * Access logging (issue #27).
+ *
+ * The API emitted no access log at all, so there was no record of what was
+ * requested or how long it took. Emit one structured JSON line per request — a
+ * log collector can index it without a parser, unlike an ad-hoc `console.log`
+ * or a pair-format string.
+ *
+ * `path` is `originalUrl` (query string included) rather than `req.url`, because
+ * the router rewrites `req.url` before `finish` fires and the query is often the
+ * interesting part of a report. `durationMs` is wall-clock from the first byte
+ * in to the response's `finish`, so it covers time spent in every handler.
+ */
+export function requestLogger(): RequestHandler {
+  return (req, res, next) => {
+    const startedAt = process.hrtime.bigint();
+    res.on("finish", () => {
+      const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+      console.log(
+        JSON.stringify({
+          level: "info",
+          event: "http_request",
+          method: req.method,
+          path: req.originalUrl,
+          status: res.statusCode,
+          durationMs: Number(durationMs.toFixed(3)),
+        }),
+      );
+    });
+    next();
+  };
+}
 
 export function createApp() {
   const app = express();

@@ -32,6 +32,12 @@ of the state tables keeps a transaction hash.
 | `Created` | `created` | `client: Address` | `escrow_id: u64`, `freelancer: Address`, `total_amount: i128` |
 | `Funded` | `funded` | `client: Address` | `escrow_id: u64`, `amount: i128`, `freelancer: Address` |
 | `MilestoneReleased` | `milestone_released` | `escrow_id: u64` | `index: u32`, `amount: i128` |
+
+> `MilestoneReleased` is emitted by **both** `release_milestone` and
+> `release_partial`, and its `amount` is the sum paid by *that* call — not the
+> milestone's total. A consumer must accumulate the amounts for a milestone (and
+> compare them against the milestone's amount) to tell a partial release from a
+> complete one; the indexer stores that running total in `Milestone.releasedAmount`.
 | `DisputeOpened` | `dispute_opened` | `escrow_id: u64` | `initiator: Address` |
 | `Resolved` | `resolved` | `escrow_id: u64` | `client_share: i128`, `freelancer_share: i128` |
 | `Refunded` | `refunded` | `escrow_id: u64` | `client: Address`, `amount: i128` |

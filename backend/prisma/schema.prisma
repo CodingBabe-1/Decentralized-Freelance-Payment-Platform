@@ -95,6 +95,14 @@ model Milestone {
   status      MilestoneStatus @default(PENDING)
   deadline    DateTime?
   releasedAt  DateTime?
+  /// Amount released so far, in the same human units as `amountUsdc`.
+  ///
+  /// `escrow.release_partial` pays a milestone down over several events, each
+  /// emitting the same `milestone_released` event as a full release, so the
+  /// indexer needs a running total to tell the two apart and to know when the
+  /// milestone is actually done (issue #25). A `RELEASED` status alone cannot
+  /// carry that: it is binary.
+  releasedAmount Decimal @default(0)
 
   // Every `include: { milestones: true }` (job list/detail, escrow routes,
   // indexer milestone-release handling) joins on jobId.

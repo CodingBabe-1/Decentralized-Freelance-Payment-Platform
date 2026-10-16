@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { Address, Keypair, nativeToScVal, xdr } from "@stellar/stellar-sdk";
-import type { DisputeStatus, JobStatus } from "@prisma/client";
+import type { DisputeStatus, JobStatus, MilestoneStatus } from "@prisma/client";
 import {
   decodeEventData,
   decodeEventFields,
@@ -14,12 +14,14 @@ import {
   buildChainEvent,
   dispatchEvent,
   handleDisputeOpened,
+  handleMilestoneReleased,
   handleRaised,
   handleRefunded,
   processContractEvents,
   resolveStartLedger,
   type DisputeLifecycleStores,
-  type IndexerStore,
+  type MilestoneReleaseJob,
+  type MilestoneReleaseStores,
   type RatedStores,
 } from "../indexer";
 
@@ -1420,5 +1422,182 @@ describe("dispute lifecycle events", () => {
 
     expect(db.jobStatus(9n)).toBe("REFUNDED");
     expect(db.disputeRows()).toHaveLength(0);
+  });
+});
+
+/**
+ * In-memory stand-in for the store `handleMilestoneReleased` writes through, so
+ * a partial-then-full payment sequence can be driven through the real handler
+ * without a database (the same approach as `FakeDisputeStore`).
+ */
+class FakeMilestoneStore implements MilestoneReleaseStores {
+  private readonly jobs = new Map<bigint, { id: string; asset: string; status: JobStatus }>();
+  private readonly milestones = new Map<
+    string,
+    {
+      id: string;
+      jobId: string;
+      index: number;
+      status: MilestoneStatus;
+      amountUsdc: string;
+      releasedAmount: string;
+      releasedAt: Date | null;
+    }
+  >();
+  private seq = 0;
+
+  /** Seed a job and its milestones; returns the job id. */
+  seed(
+    escrowId: bigint,
+    specs: Array<{ amountUsdc: string; releasedAmount?: string; status?: MilestoneStatus }>,
+    asset = "USDC",
+  ): string {
+    const id = `job-${++this.seq}`;
+    this.jobs.set(escrowId, { id, asset, status: "ACTIVE" });
+    specs.forEach((spec, index) => {
+      this.milestones.set(`${id}:${index}`, {
+        id: `ms-${id}-${index}`,
+        jobId: id,
+        index,
+        status: spec.status ?? "PENDING",
+        amountUsdc: spec.amountUsdc,
+        releasedAmount: spec.releasedAmount ?? "0",
+        releasedAt: null,
+      });
+    });
+    return id;
+  }
+
+  jobStatus(escrowId: bigint): JobStatus | undefined {
+    return this.jobs.get(escrowId)?.status;
+  }
+
+  milestoneRow(jobId: string, index: number) {
+    const row = this.milestones.get(`${jobId}:${index}`);
+    if (!row) throw new Error(`no milestone ${index} on ${jobId}`);
+    return row;
+  }
+
+  job = {
+    findUnique: async ({ where }: { where: { escrowId: bigint } }): Promise<MilestoneReleaseJob | null> => {
+      const job = this.jobs.get(where.escrowId);
+      if (!job) return null;
+      return {
+        id: job.id,
+        asset: job.asset,
+        milestones: [...this.milestones.values()]
+          .filter((m) => m.jobId === job.id)
+          .map((m) => ({
+            id: m.id,
+            index: m.index,
+            status: m.status,
+            amountUsdc: m.amountUsdc,
+            releasedAmount: m.releasedAmount,
+          })),
+      };
+    },
+    update: async ({
+      where,
+      data,
+    }: {
+      where: { id: string };
+      data: { status: JobStatus };
+    }) => {
+      for (const job of this.jobs.values()) if (job.id === where.id) job.status = data.status;
+      return {};
+    },
+  };
+
+  // The handler's write surface (`MilestoneReleaseStores.milestone`).
+  milestone = {
+    update: async ({
+      where,
+      data,
+    }: {
+      where: { id: string };
+      data: { status?: MilestoneStatus; releasedAt?: Date; releasedAmount?: string };
+    }) => {
+      for (const row of this.milestones.values()) {
+        if (row.id !== where.id) continue;
+        if (data.status !== undefined) row.status = data.status;
+        if (data.releasedAt !== undefined) row.releasedAt = data.releasedAt;
+        if (data.releasedAmount !== undefined) row.releasedAmount = data.releasedAmount;
+      }
+      return {};
+    },
+  };
+}
+
+describe("milestone_released events (issue #25)", () => {
+  const ESCROW = 7n;
+  // 10 USDC at 7 decimals, in the i128 base units the event carries.
+  const TEN = 100_000_000n;
+
+  /** A real `milestone_released` payload, escrow_id included from topic1. */
+  function released(index: number, amount: bigint): Record<string, unknown> {
+    return eventFields(
+      makeEvent(
+        "milestone_released",
+        { index: nativeToScVal(index, { type: "u32" }), amount: nativeToScVal(amount, { type: "i128" }) },
+        10,
+        [nativeToScVal(ESCROW, { type: "u64" })],
+      ),
+    );
+  }
+
+  it("does not mark a milestone RELEASED when only part of it has been paid", async () => {
+    const db = new FakeMilestoneStore();
+    const jobId = db.seed(ESCROW, [{ amountUsdc: "10" }]);
+
+    await handleMilestoneReleased(released(0, 40_000_000n), db);
+
+    // 4 of 10 USDC: the milestone is still open, so the job must stay ACTIVE.
+    expect(db.milestoneRow(jobId, 0)).toMatchObject({
+      status: "PENDING",
+      releasedAmount: "4",
+      releasedAt: null,
+    });
+    expect(db.jobStatus(ESCROW)).toBe("ACTIVE");
+  });
+
+  it("completes the milestone only once the partial payments add up", async () => {
+    const db = new FakeMilestoneStore();
+    const jobId = db.seed(ESCROW, [{ amountUsdc: "10" }]);
+
+    await handleMilestoneReleased(released(0, 40_000_000n), db);
+    expect(db.milestoneRow(jobId, 0).status).toBe("PENDING");
+
+    // `release_milestone` emits only the remaining 6 USDC, not the 10 total —
+    // comparing the event amount to the milestone total would still read this
+    // as a partial and strand the job. The running total is what settles it.
+    await handleMilestoneReleased(released(0, 60_000_000n), db);
+
+    expect(db.milestoneRow(jobId, 0)).toMatchObject({ status: "RELEASED", releasedAmount: "10" });
+    expect(db.milestoneRow(jobId, 0).releasedAt).toBeInstanceOf(Date);
+    expect(db.jobStatus(ESCROW)).toBe("COMPLETED");
+  });
+
+  it("keeps the job ACTIVE while another milestone is still unpaid", async () => {
+    const db = new FakeMilestoneStore();
+    const jobId = db.seed(ESCROW, [{ amountUsdc: "10" }, { amountUsdc: "10" }]);
+
+    await handleMilestoneReleased(released(0, TEN), db);
+
+    expect(db.milestoneRow(jobId, 0).status).toBe("RELEASED");
+    expect(db.milestoneRow(jobId, 1).status).toBe("PENDING");
+    // One milestone fully paid is not the whole job.
+    expect(db.jobStatus(ESCROW)).toBe("ACTIVE");
+  });
+
+  it("tolerates a milestone that was already part-paid before this event", async () => {
+    // A cursor rewind replays events; the stored running total is the source of
+    // truth, so the same event cannot release an already-known partial twice.
+    const db = new FakeMilestoneStore();
+    const jobId = db.seed(ESCROW, [{ amountUsdc: "10", releasedAmount: "6" }]);
+
+    await handleMilestoneReleased(released(0, 40_000_000n), db);
+
+    expect(db.milestoneRow(jobId, 0)).toMatchObject({ status: "RELEASED", releasedAmount: "10" });
+    expect(db.jobStatus(ESCROW)).toBe("COMPLETED");
   });
 });

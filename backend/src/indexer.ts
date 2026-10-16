@@ -146,7 +146,7 @@ export function startIndexer() {
 
   if (CONTRACT_IDS.length === 0) {
     console.warn("[indexer] No contract IDs configured — skipping.");
-    return;
+    return { stop: async () => {} };
   }
 
   if (CONTRACT_IDS.length < INDEXED_CONTRACTS.length) {
@@ -157,8 +157,30 @@ export function startIndexer() {
   }
 
   console.log("[indexer] Starting, polling every", config.INDEXER_POLL_INTERVAL_MS, "ms");
-  void poll();
-  setInterval(() => void poll(), config.INDEXER_POLL_INTERVAL_MS);
+
+  let stopped = false;
+  // The poll currently running, if any; `stop()` awaits it.
+  let inFlight: Promise<void> | null = null;
+
+  const tick = () => {
+    // `poll()` catches its own errors, so this only guards against overlap:
+    // one poll at a time keeps two writers off the same cursor row.
+    if (stopped || inFlight) return;
+    inFlight = poll().finally(() => {
+      inFlight = null;
+    });
+  };
+
+  tick();
+  const timer = setInterval(tick, config.INDEXER_POLL_INTERVAL_MS);
+
+  return {
+    stop: async () => {
+      stopped = true;
+      clearInterval(timer);
+      await inFlight;
+    },
+  };
 }
 
 async function poll() {
@@ -637,8 +659,18 @@ async function handleMilestoneReleased(
 
   await store.milestone.update({
     where: { id: milestone.id },
-    data: { status: "RELEASED", releasedAt: new Date() },
+    data: fullyReleased
+      ? {
+          status: "RELEASED",
+          releasedAt: new Date(),
+          // Clamp: the chain never over-releases, but a stray event must not
+          // push the stored total past the milestone.
+          releasedAmount: formatAmount(milestoneTotal, decimals),
+        }
+      : { releasedAmount: formatAmount(releasedSoFar, decimals) },
   });
+
+  if (!fullyReleased) return;
 
   const allReleased = job.milestones.every(
     (m) => m.id === milestone.id || m.status === "RELEASED",
