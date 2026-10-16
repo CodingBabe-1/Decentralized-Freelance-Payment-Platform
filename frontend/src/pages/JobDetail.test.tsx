@@ -22,6 +22,8 @@ const h = vi.hoisted(() => ({
   },
   authenticate: vi.fn(async () => "jwt-1"),
   fetchJobs: vi.fn(async () => [] as unknown[]),
+  fetchJob: vi.fn(async () => null as unknown),
+  uploadJobMilestoneDeliverable: vi.fn(),
   recordRating: vi.fn(async () => ({ rating: {}, xdr: "x" })),
   createDispute: vi.fn(),
   linkDisputeId: vi.fn(),
@@ -51,6 +53,8 @@ vi.mock("../lib/stellar", () => ({
 vi.mock("../lib/api", () => ({
   authenticate: h.authenticate,
   fetchJobs: h.fetchJobs,
+  fetchJob: h.fetchJob,
+  uploadJobMilestoneDeliverable: h.uploadJobMilestoneDeliverable,
   submitRating: h.recordRating,
   createDispute: h.createDispute,
   linkDisputeId: h.linkDisputeId,
@@ -522,3 +526,59 @@ describe("JobDetail opening a dispute", () => {
     await screen.findByText(/no off-chain record, so the reason was not stored/i);
   });
 });
+
+describe("Milestone Deliverables (Issue #65)", () => {
+  beforeEach(() => {
+    h.fetchJobs.mockReset();
+    h.fetchJob.mockReset();
+    h.uploadJobMilestoneDeliverable.mockReset();
+    h.wallet.publicKey = CLIENT;
+  });
+
+  it("displays deliverables for client to review before releasing", async () => {
+    h.escrow.getEscrow.mockResolvedValue(ACTIVE);
+    h.fetchJobs.mockResolvedValue([{ id: "job-1", escrowId: 7 }]);
+    h.fetchJob.mockResolvedValue({
+      id: "job-1",
+      milestones: [
+        {
+          id: "m-1",
+          index: 0,
+          deliverables: [
+            {
+              id: "d-1",
+              milestoneId: "m-1",
+              fileName: "final_design.pdf",
+              fileUrl: "https://example.com/final_design.pdf",
+              fileSize: 20480,
+              description: "Final PDF export",
+            },
+          ],
+        },
+      ],
+    });
+
+    render(<JobDetail />);
+
+    expect(await screen.findByText("final_design.pdf")).toBeTruthy();
+    expect(screen.getByText(/20.0 KB/)).toBeTruthy();
+    expect(screen.getByText(/Final PDF export/)).toBeTruthy();
+    // Client sees the Release button available
+    expect(screen.getByRole("button", { name: "Release" })).toBeTruthy();
+  });
+
+  it("shows Attach Deliverable action for the freelancer", async () => {
+    h.wallet.publicKey = FREELANCER;
+    h.escrow.getEscrow.mockResolvedValue(ACTIVE);
+    h.fetchJobs.mockResolvedValue([{ id: "job-1", escrowId: 7 }]);
+
+    render(<JobDetail />);
+
+    const attachBtn = await screen.findByRole("button", { name: "Attach Deliverable" });
+    expect(attachBtn).toBeTruthy();
+
+    fireEvent.click(attachBtn);
+    expect(screen.getByText("Select File")).toBeTruthy();
+  });
+});
+

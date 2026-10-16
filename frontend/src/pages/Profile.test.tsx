@@ -23,6 +23,12 @@ const h = vi.hoisted(() => ({
   wallet: {
     publicKey: "GVIEWER" as string | null,
     connect: vi.fn(async () => "GVIEWER"),
+    signMessage: vi.fn(async () => "mock-signature"),
+  },
+  api: {
+    fetchUserProfile: vi.fn(),
+    updateUserProfile: vi.fn(),
+    authenticate: vi.fn(async (..._args: unknown[]) => "test-jwt-token"),
   },
   api: {
     fetchUserJobs: vi.fn(),
@@ -172,6 +178,77 @@ describe("Profile reputation", () => {
     expect(screen.getByText(ADDRESS)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Connect Freighter" }));
     await waitFor(() => expect(h.wallet.connect).toHaveBeenCalled());
+  });
+
+  it("does not render notification preferences if the connected wallet is not the profile owner", () => {
+    h.wallet.publicKey = "GDIFFERENT";
+    render(<Profile />);
+    expect(screen.queryByLabelText("Notification Preferences")).toBeNull();
+    expect(screen.queryByText("Email Notifications")).toBeNull();
+  });
+
+  it("renders notification preferences and saves updated preferences for the profile owner", async () => {
+    h.wallet.publicKey = ADDRESS;
+    h.api.fetchUserProfile.mockResolvedValue({
+      id: "u-1",
+      stellarAddress: ADDRESS,
+      email: "existing@example.com",
+      notifyOnDispute: true,
+      notifyOnRelease: false,
+      notifyOnRefund: true,
+    });
+    h.api.updateUserProfile.mockResolvedValue({
+      id: "u-1",
+      stellarAddress: ADDRESS,
+      email: "newemail@example.com",
+      notifyOnDispute: true,
+      notifyOnRelease: true,
+      notifyOnRefund: false,
+    });
+
+    render(<Profile />);
+
+    // Waits for the form to populate
+    const emailInput = await screen.findByLabelText("Email Address");
+    expect((emailInput as HTMLInputElement).value).toBe("existing@example.com");
+
+    const disputeCheckbox = screen.getByLabelText(
+      "A dispute is opened on one of my jobs",
+    ) as HTMLInputElement;
+    const releaseCheckbox = screen.getByLabelText("A milestone is released") as HTMLInputElement;
+    const refundCheckbox = screen.getByLabelText("An escrow is refunded") as HTMLInputElement;
+
+    expect(disputeCheckbox.checked).toBe(true);
+    expect(releaseCheckbox.checked).toBe(false);
+    expect(refundCheckbox.checked).toBe(true);
+
+    // Modify form values
+    fireEvent.change(emailInput, { target: { value: "newemail@example.com" } });
+    fireEvent.click(releaseCheckbox);
+    fireEvent.click(refundCheckbox);
+
+    expect(releaseCheckbox.checked).toBe(true);
+    expect(refundCheckbox.checked).toBe(false);
+
+    // Submit form
+    fireEvent.click(screen.getByRole("button", { name: "Save Preferences" }));
+
+    await waitFor(() => {
+      expect(h.api.authenticate).toHaveBeenCalledWith(ADDRESS, h.wallet.signMessage);
+      expect(h.api.updateUserProfile).toHaveBeenCalledWith(
+        {
+          email: "newemail@example.com",
+          notifyOnDispute: true,
+          notifyOnRelease: true,
+          notifyOnRefund: false,
+        },
+        "test-jwt-token",
+      );
+    });
+
+    expect(
+      await screen.findByText("Notification preferences saved successfully."),
+    ).toBeTruthy();
   });
 });
 

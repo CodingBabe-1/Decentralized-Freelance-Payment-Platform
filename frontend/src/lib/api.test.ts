@@ -615,3 +615,71 @@ describe("linkDisputeId", () => {
     await expect(linkDisputeId("dispute-1", 3n, "jwt-1")).rejects.toThrow(/HTTP 403/);
   });
 });
+
+describe("submitProposal and proposals API (Issue #63)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("submits proposal successfully with auth token", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          id: "prop-1",
+          jobId: "job-1",
+          coverLetter: "My cover letter",
+          proposedRate: "100",
+          status: "PENDING",
+        }),
+        { status: 201 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await submitProposal(
+      "job-1",
+      { coverLetter: "My cover letter", proposedRate: "100" },
+      "jwt-1",
+    );
+
+    expect(result.id).toBe("prop-1");
+    expect(result.status).toBe("PENDING");
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain("/api/jobs/job-1/proposals");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer jwt-1");
+    expect(JSON.parse(init.body as string)).toEqual({
+      coverLetter: "My cover letter",
+      proposedRate: "100",
+    });
+  });
+
+  it("fetches proposals for a job", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify([{ id: "prop-1", status: "PENDING" }]), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const list = await fetchProposals("job-1");
+    expect(list).toHaveLength(1);
+    const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain("/api/jobs/job-1/proposals");
+  });
+
+  it("assigns freelancer to a job", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ id: "job-1", status: "CREATED", freelancerId: "free-1" }), {
+        status: 200,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const updated = await assignFreelancer("job-1", "GABCDEF", "jwt-1");
+    expect(updated.id).toBe("job-1");
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain("/api/jobs/job-1/assign");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body as string)).toEqual({ freelancerAddress: "GABCDEF" });
+  });
+});
+

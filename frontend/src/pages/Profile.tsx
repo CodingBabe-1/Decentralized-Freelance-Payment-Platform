@@ -39,7 +39,7 @@ import { formatDate } from "../lib/time";
 export default function Profile() {
   const { address } = useParams<{ address: string }>();
   const { getReputation, isPending, error } = useEscrow();
-  const { publicKey, connect } = useWallet();
+  const { publicKey, connect, signMessage } = useWallet();
   const [reputation, setReputation] = useState<ReputationView | null>(null);
 
   // `null` means "not loaded yet"; an empty array means "loaded, nothing there".
@@ -257,3 +257,4 @@ export default function Profile() {
     </Layout>
   );
 }
+

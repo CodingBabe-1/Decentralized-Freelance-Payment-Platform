@@ -57,6 +57,7 @@ import { isListed, parseList } from "../lib/access";
 import { requireAuth } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { AppError } from "../middleware/errorHandler";
+import { notifyDisputeOpened } from "../lib/notifications";
 
 export const disputesRouter = Router();
 
@@ -154,6 +155,12 @@ disputesRouter.post("/", requireAuth, validate(raiseSchema), async (req, res, ne
       create: { jobId, raisedByAddress: addr, reason },
       update: {},
     });
+
+    try {
+      await notifyDisputeOpened(job, { reason });
+    } catch (notifyErr) {
+      console.error("[notifications] Failed to send dispute notification:", notifyErr);
+    }
 
     res.status(201).json({ dispute, xdr });
   } catch (err) {

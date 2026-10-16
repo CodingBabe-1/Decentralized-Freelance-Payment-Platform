@@ -37,7 +37,16 @@ import { useEscrow, type EscrowView } from "../hooks/useEscrow";
 import { useWallet } from "../hooks/wallet-context";
 import { explorerTxUrl } from "../lib/stellar";
 import { assetForContractId, fromBaseUnits } from "../lib/assets";
-import { authenticate, createDispute, fetchJobs, linkDisputeId, submitRating as recordRating } from "../lib/api";
+import {
+  authenticate,
+  createDispute,
+  fetchJobs,
+  fetchJob,
+  linkDisputeId,
+  submitRating as recordRating,
+  uploadJobMilestoneDeliverable,
+  type DeliverableApi,
+} from "../lib/api";
 import { formatDeadline, formatRemaining, secondsUntil } from "../lib/time";
 import { parseEscrowId } from "../lib/escrowId";
 
@@ -111,6 +120,23 @@ export default function JobDetail() {
 
   const escrowId = id ? parseEscrowId(id) : null;
 
+  const loadJobDeliverables = useCallback(async (jobIdToLoad: string) => {
+    try {
+      const job = await fetchJob(jobIdToLoad);
+      if (job?.milestones) {
+        const map: Record<number, DeliverableApi[]> = {};
+        for (const m of job.milestones) {
+          if (m.deliverables) {
+            map[m.index] = m.deliverables;
+          }
+        }
+        setDeliverables(map);
+      }
+    } catch {
+      // Job might not have off-chain record
+    }
+  }, []);
+
   const refresh = useCallback(async () => {
     if (escrowId === null) return;
     // Don't let a background poll clobber state with a read that raced a write.
@@ -126,8 +152,19 @@ export default function JobDetail() {
       } else {
         setDisputeDeadline(null);
       }
+
+      // Load off-chain job data and deliverables if available
+      try {
+        const jId = await findJobIdByEscrow(escrowId, data.client);
+        if (jId) {
+          setOffChainJobId(jId);
+          void loadJobDeliverables(jId);
+        }
+      } catch {
+        // ignore
+      }
     } else setLoadError("Could not load escrow (is the id correct?)");
-  }, [escrowId, getEscrow, getDisputeDeadline, hasPendingWrite]);
+  }, [escrowId, getEscrow, getDisputeDeadline, hasPendingWrite, loadJobDeliverables]);
 
   useEffect(() => {
     void refresh();
@@ -270,6 +307,60 @@ export default function JobDetail() {
     setLastHash(res.hash);
     await saveDispute(escrowId, text, res.disputeId);
     void refresh();
+  }
+
+  async function handleUploadDeliverable(e: React.FormEvent, milestoneIndex: number) {
+    e.preventDefault();
+    if (!selectedFile || !publicKey) return;
+    setUploading(true);
+    setUploadError(null);
+    setUploadSuccess(null);
+    try {
+      const fileUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error("Failed to read file"));
+        reader.readAsDataURL(selectedFile);
+      });
+
+      let targetJobId = offChainJobId;
+      if (!targetJobId && escrowId !== null) {
+        targetJobId = await findJobIdByEscrow(escrowId, publicKey);
+      }
+      if (!targetJobId) {
+        throw new Error("Could not find matching job record to attach deliverable");
+      }
+
+      const token = await authenticate(publicKey, signMessage);
+      const newDeliv = await uploadJobMilestoneDeliverable(
+        targetJobId,
+        milestoneIndex,
+        {
+          fileName: selectedFile.name,
+          fileUrl,
+          fileSize: selectedFile.size,
+          fileType: selectedFile.type,
+          description: deliverableDesc.trim() || undefined,
+        },
+        token,
+      );
+
+      setDeliverables((prev) => ({
+        ...prev,
+        [milestoneIndex]: [newDeliv, ...(prev[milestoneIndex] || [])],
+      }));
+      setUploadSuccess("Deliverable attached successfully!");
+      setSelectedFile(null);
+      setDeliverableDesc("");
+      setTimeout(() => {
+        setAttachingMilestoneIndex(null);
+        setUploadSuccess(null);
+      }, 1500);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Failed to upload deliverable");
+    } finally {
+      setUploading(false);
+    }
   }
 
   /**

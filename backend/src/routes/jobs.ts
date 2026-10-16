@@ -207,10 +207,89 @@ jobsRouter.get("/:id", async (req, res, next) => {
   try {
     const job = await prisma.job.findUnique({
       where: { id: req.params.id },
-      include: { milestones: true, client: true, freelancer: true, disputes: true, ratings: true },
+      include: {
+        milestones: {
+          include: {
+            deliverables: {
+              include: { uploadedBy: true },
+              orderBy: { createdAt: "desc" },
+            },
+          },
+          orderBy: { index: "asc" },
+        },
+        client: true,
+        freelancer: true,
+        disputes: true,
+        ratings: true,
+        proposals: { include: { freelancer: true }, orderBy: { createdAt: "desc" } },
+      },
     });
     if (!job) throw new AppError(404, "Job not found");
     res.json(job);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/jobs/:id/proposals
+jobsRouter.post("/:id/proposals", requireAuth, validate(createProposalSchema), async (req, res, next) => {
+  try {
+    const job = await prisma.job.findUnique({
+      where: { id: req.params.id },
+      include: { client: true },
+    });
+    if (!job) throw new AppError(404, "Job not found");
+
+    if (job.client.stellarAddress === res.locals.stellarAddress) {
+      throw new AppError(400, "Client cannot apply to their own job");
+    }
+
+    if (job.freelancerId || job.status !== "CREATED") {
+      throw new AppError(400, "Job is not open for proposals");
+    }
+
+    const freelancer = await prisma.user.upsert({
+      where: { stellarAddress: res.locals.stellarAddress },
+      create: { stellarAddress: res.locals.stellarAddress },
+      update: {},
+    });
+
+    const { coverLetter, proposedRate } = req.body as {
+      coverLetter?: string;
+      proposedRate?: string | number;
+    };
+
+    try {
+      const proposal = await prisma.proposal.create({
+        data: {
+          jobId: job.id,
+          freelancerId: freelancer.id,
+          coverLetter,
+          proposedRate: proposedRate !== undefined ? String(proposedRate) : undefined,
+        },
+        include: { freelancer: true },
+      });
+      res.status(201).json(proposal);
+    } catch (e: any) {
+      if (e?.code === "P2002") {
+        throw new AppError(409, "You have already applied for this job");
+      }
+      throw e;
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/jobs/:id/proposals
+jobsRouter.get("/:id/proposals", async (req, res, next) => {
+  try {
+    const proposals = await prisma.proposal.findMany({
+      where: { jobId: req.params.id },
+      include: { freelancer: true },
+      orderBy: { createdAt: "desc" },
+    });
+    res.json(proposals);
   } catch (err) {
     next(err);
   }
@@ -241,6 +320,17 @@ jobsRouter.put("/:id/assign", requireAuth, validate(assignJobSchema), async (req
       where: { id: req.params.id },
       data: { freelancerId: freelancer.id },
     });
+
+    // Accept selected proposal and reject other pending proposals
+    await prisma.proposal.updateMany({
+      where: { jobId: job.id, freelancerId: freelancer.id },
+      data: { status: "ACCEPTED" },
+    });
+    await prisma.proposal.updateMany({
+      where: { jobId: job.id, freelancerId: { not: freelancer.id }, status: "PENDING" },
+      data: { status: "REJECTED" },
+    });
+
     res.json(updated);
   } catch (err) {
     next(err);
