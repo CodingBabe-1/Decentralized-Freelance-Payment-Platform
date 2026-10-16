@@ -61,7 +61,11 @@ import {
   eventEscrowId,
   type ContractEventLike,
 } from "./lib/events";
-import { ASSETS, fromBaseUnits } from "./lib/assets";
+import {
+  notifyDisputeOpened,
+  notifyMilestoneReleased,
+  notifyEscrowRefunded,
+} from "./lib/notifications";
 
 const CURSOR_ID = "main";
 export const EVENT_PAGE_LIMIT = 100;
@@ -650,7 +654,7 @@ async function handleMilestoneReleased(
 
   const job = await store.job.findUnique({
     where: { escrowId },
-    include: { milestones: true },
+    include: { milestones: true, client: true, freelancer: true },
   });
   if (!job) return;
 
@@ -699,7 +703,10 @@ async function handleMilestoneReleased(
  */
 export interface DisputeLifecycleStores {
   job: {
-    findUnique(args: { where: { escrowId: bigint } }): Promise<{ id: string } | null>;
+    findUnique(args: {
+      where: { escrowId: bigint };
+      include?: unknown;
+    }): Promise<{ id: string; title?: string; client?: any; freelancer?: any } | null>;
     updateMany(args: {
       where: { escrowId: bigint };
       data: { status: JobStatus };
@@ -813,6 +820,16 @@ export async function handleRefunded(
     where: { job: { escrowId }, status: { in: OPEN_DISPUTE_STATUSES } },
     data: { status: "REFUNDED", resolvedAt: new Date() },
   });
+
+  try {
+    const job = await db.job.findUnique({
+      where: { escrowId },
+      include: { client: true, freelancer: true },
+    });
+    if (job && job.title) await notifyEscrowRefunded(job as any);
+  } catch (notifyErr) {
+    console.error("[notifications] Failed to send refund notification:", notifyErr);
+  }
 }
 
 /**

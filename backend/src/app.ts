@@ -87,7 +87,7 @@ export function createApp() {
     }),
   );
 
-  app.use(express.json());
+  app.use(express.json({ limit: "10mb" }));
   // Prisma rows carry BigInt ids, which `JSON.stringify` throws on; without this
   // any route that returns a job or dispute row would 500 after a successful write.
   app.set("json replacer", jsonReplacer);
@@ -97,6 +97,7 @@ export function createApp() {
 
   app.use("/api/users", usersRouter);
   app.use("/api/jobs", jobsRouter);
+  app.use("/api/milestones", milestonesRouter);
   app.use("/api/escrow", escrowRouter);
   app.use("/api/disputes", disputesRouter);
   app.use("/api/reputation", reputationRouter);

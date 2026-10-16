@@ -20,6 +20,7 @@ const h = vi.hoisted(() => ({
     error: null as string | null,
     connect: vi.fn(async () => "GCLIENT"),
     disconnect: vi.fn(),
+    signMessage: vi.fn(async () => "sig"),
   },
   fetchJobs: vi.fn(),
   fetchReminders: vi.fn(async () => [] as unknown[]),
@@ -454,6 +455,38 @@ describe("Dashboard job list", () => {
     expect(signal.aborted).toBe(true);
   });
 
+  it("filters jobs by search query and sort option", async () => {
+    render(<Dashboard />);
+    await screen.findByText("No jobs found.");
+
+    fireEvent.change(screen.getByLabelText(/Search jobs/), {
+      target: { value: "redesign" },
+    });
+
+    await waitFor(() => {
+      expect(lastQuery()).toEqual({
+        status: undefined,
+        page: 1,
+        limit: 10,
+        q: "redesign",
+      });
+    });
+
+    fireEvent.change(screen.getByLabelText(/Sort by/), {
+      target: { value: "amount_desc" },
+    });
+
+    await waitFor(() => {
+      expect(lastQuery()).toEqual({
+        status: undefined,
+        page: 1,
+        limit: 10,
+        q: "redesign",
+        sort: "amount_desc",
+      });
+    });
+  });
+
   it("does not report a superseded request as an error", async () => {
     h.fetchJobs.mockRejectedValue(
       new DOMException("The operation was aborted.", "AbortError"),
@@ -488,3 +521,100 @@ describe("Dashboard open-by-id form", () => {
     // this form hands straight to JobDetail.
   });
 });
+
+describe("Dashboard proposals and applicants (Issue #63)", () => {
+  const FREELANCER = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
+
+  beforeEach(() => {
+    h.fetchProposals.mockReset();
+    h.submitProposal.mockReset();
+    h.assignFreelancer.mockReset();
+  });
+
+  it("shows Apply button on open jobs when connected as freelancer", async () => {
+    h.wallet.publicKey = FREELANCER;
+    h.fetchJobs.mockResolvedValue([
+      job({ id: "job-open-1", title: "Open Contract", status: "CREATED", client: { stellarAddress: CLIENT } }),
+    ]);
+
+    render(<Dashboard />);
+
+    expect(await screen.findByText("Open Contract")).toBeTruthy();
+    const applyBtn = screen.getByRole("button", { name: "Apply" });
+    expect(applyBtn).toBeTruthy();
+
+    fireEvent.click(applyBtn);
+    expect(screen.getByText("Apply for Open Contract")).toBeTruthy();
+    expect(screen.getByLabelText(/Cover Letter/)).toBeTruthy();
+  });
+
+  it("submits a proposal on open job", async () => {
+    h.wallet.publicKey = FREELANCER;
+    h.fetchJobs.mockResolvedValue([
+      job({ id: "job-open-1", title: "Open Contract", status: "CREATED", client: { stellarAddress: CLIENT } }),
+    ]);
+    h.submitProposal.mockResolvedValue({ id: "prop-1", status: "PENDING" });
+
+    render(<Dashboard />);
+    await screen.findByText("Open Contract");
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    fireEvent.change(screen.getByLabelText(/Cover Letter/), {
+      target: { value: "I have 5 years of experience" },
+    });
+    fireEvent.change(screen.getByLabelText(/Proposed Rate/), {
+      target: { value: "100" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Submit Application" }));
+
+    await waitFor(() => {
+      expect(h.authenticate).toHaveBeenCalledWith(FREELANCER, expect.any(Function));
+      expect(h.submitProposal).toHaveBeenCalledWith(
+        "job-open-1",
+        { coverLetter: "I have 5 years of experience", proposedRate: "100" },
+        "mock-token",
+      );
+    });
+    expect(await screen.findByText("Application submitted successfully!")).toBeTruthy();
+  });
+
+  it("shows View Applicants for client on open job and allows assigning", async () => {
+    h.wallet.publicKey = CLIENT;
+    h.fetchJobs.mockResolvedValue([
+      job({ id: "job-open-1", title: "Open Contract", status: "CREATED", client: { stellarAddress: CLIENT } }),
+    ]);
+    h.fetchProposals.mockResolvedValue([
+      {
+        id: "prop-1",
+        jobId: "job-open-1",
+        freelancerId: "free-1",
+        coverLetter: "Pick me please",
+        proposedRate: "50",
+        status: "PENDING",
+        freelancer: { stellarAddress: FREELANCER },
+      },
+    ]);
+    h.assignFreelancer.mockResolvedValue({ id: "job-open-1", status: "CREATED", freelancerId: "free-1" });
+
+    render(<Dashboard />);
+    await screen.findByText("Open Contract");
+
+    const viewApplicantsBtn = screen.getByRole("button", { name: "View Applicants" });
+    expect(viewApplicantsBtn).toBeTruthy();
+
+    fireEvent.click(viewApplicantsBtn);
+    await waitFor(() => expect(h.fetchProposals).toHaveBeenCalledWith("job-open-1"));
+
+    expect(await screen.findByText("Pick me please")).toBeTruthy();
+    const assignBtn = screen.getByRole("button", { name: "Assign" });
+    expect(assignBtn).toBeTruthy();
+
+    fireEvent.click(assignBtn);
+    await waitFor(() => {
+      expect(h.assignFreelancer).toHaveBeenCalledWith("job-open-1", FREELANCER, "mock-token");
+    });
+  });
+});
+

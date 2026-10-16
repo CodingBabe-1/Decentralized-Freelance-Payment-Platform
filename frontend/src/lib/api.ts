@@ -51,6 +51,8 @@ export function buildJobsQuery(query: JobListQuery = {}): string {
   if (query.status) params.set("status", query.status);
   if (query.client) params.set("client", query.client);
   if (query.freelancer) params.set("freelancer", query.freelancer);
+  if (query.q) params.set("q", query.q);
+  if (query.sort) params.set("sort", query.sort);
   if (query.tag) params.set("tag", query.tag);
   if (query.page !== undefined) params.set("page", String(query.page));
   if (query.limit !== undefined) params.set("limit", String(query.limit));
@@ -74,6 +76,7 @@ export interface JobApi {
   /** On-chain escrow id, present only once the job has been funded on-chain. */
   escrowId: string | number | null;
   title: string;
+  description?: string;
   status: string;
   /** Asset symbol the job pays in (see lib/assets.ts). */
   asset?: string;

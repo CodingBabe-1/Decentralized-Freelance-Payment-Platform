@@ -17,7 +17,11 @@ model User {
   id           String   @id @default(cuid())
   stellarAddress String @unique
   displayName  String?
+  email        String?
   bio          String?
+  notifyOnDispute Boolean @default(false)
+  notifyOnRelease Boolean @default(false)
+  notifyOnRefund  Boolean @default(false)
   createdAt    DateTime @default(now())
 
   jobsAsClient     Job[]      @relation("ClientJobs")
@@ -103,6 +107,8 @@ model Milestone {
   /// milestone is actually done (issue #25). A `RELEASED` status alone cannot
   /// carry that: it is binary.
   releasedAmount Decimal @default(0)
+
+  deliverables Deliverable[]
 
   // Every `include: { milestones: true }` (job list/detail, escrow routes,
   // indexer milestone-release handling) joins on jobId.
