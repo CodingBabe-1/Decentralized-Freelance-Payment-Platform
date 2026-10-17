@@ -25,12 +25,16 @@ import StatusBadge from "../components/StatusBadge";
 import { useEscrow, type ReputationView } from "../hooks/useEscrow";
 import { useWallet } from "../hooks/wallet-context";
 import {
+  authenticate,
   fetchRatingsReceived,
   fetchTransactions,
   fetchUserJobs,
+  fetchUserProfile,
+  updateUserProfile,
   type JobApi,
   type ReceivedRatingApi,
   type TransactionApi,
+  type UserProfileApi,
 } from "../lib/api";
 import { actionLabel } from "../lib/activity";
 import { explorerTxUrl } from "../lib/stellar";
@@ -47,6 +51,18 @@ export default function Profile() {
   const [ratings, setRatings] = useState<ReceivedRatingApi[] | null>(null);
   const [transactions, setTransactions] = useState<TransactionApi[] | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
+
+  // Notification preferences (issue #67): only the profile's owner may see or
+  // edit them, and they live off-chain on the `User` row.
+  const isOwner = Boolean(publicKey && address && publicKey === address);
+  const [email, setEmail] = useState("");
+  const [notifyOnDispute, setNotifyOnDispute] = useState(true);
+  const [notifyOnRelease, setNotifyOnRelease] = useState(true);
+  const [notifyOnRefund, setNotifyOnRefund] = useState(true);
+  const [prefStatus, setPrefStatus] = useState<
+    "idle" | "loading" | "saving" | "saved" | "error"
+  >("idle");
+  const [prefMessage, setPrefMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (address) void getReputation(address).then((r) => r && setReputation(r));
@@ -84,6 +100,55 @@ export default function Profile() {
       cancelled = true;
     };
   }, [address]);
+
+  useEffect(() => {
+    if (!isOwner || !address) return;
+    let active = true;
+    setPrefStatus("loading");
+    void fetchUserProfile(address)
+      .then((profile: UserProfileApi | null) => {
+        if (!active) return;
+        if (profile) {
+          setEmail(profile.email ?? "");
+          setNotifyOnDispute(profile.notifyOnDispute ?? true);
+          setNotifyOnRelease(profile.notifyOnRelease ?? true);
+          setNotifyOnRefund(profile.notifyOnRefund ?? true);
+        }
+        setPrefStatus("idle");
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        setPrefStatus("idle");
+        console.warn("Could not load off-chain user profile:", err);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isOwner, address]);
+
+  async function handleSavePreferences(e: React.FormEvent) {
+    e.preventDefault();
+    if (!publicKey || !signMessage) return;
+    setPrefStatus("saving");
+    setPrefMessage(null);
+    try {
+      const token = await authenticate(publicKey, signMessage);
+      await updateUserProfile(
+        {
+          email: email.trim() || null,
+          notifyOnDispute,
+          notifyOnRelease,
+          notifyOnRefund,
+        },
+        token,
+      );
+      setPrefStatus("saved");
+      setPrefMessage("Notification preferences saved successfully.");
+    } catch (err) {
+      setPrefStatus("error");
+      setPrefMessage(err instanceof Error ? err.message : "Failed to save preferences.");
+    }
+  }
 
   // Weighted average = total_score / weight; fall back to the raw count for
   // aggregates written before weighting existed.
@@ -254,6 +319,71 @@ export default function Profile() {
           </table>
         )}
       </section>
+
+      {isOwner && (
+        <section aria-label="Notification Preferences">
+          <h2>Email Notifications</h2>
+          <p className="muted">
+            Opt in to email notifications for critical escrow events. Delivery is off-chain
+            and never affects an on-chain action.
+          </p>
+
+          <form onSubmit={(e) => void handleSavePreferences(e)}>
+            <p>
+              <label htmlFor="user-email">
+                Email Address
+                <br />
+                <input
+                  id="user-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="freelancer@example.com"
+                />
+              </label>
+            </p>
+
+            <fieldset>
+              <legend>Notify me when:</legend>
+
+              <label>
+                <input
+                  type="checkbox"
+                  checked={notifyOnDispute}
+                  onChange={(e) => setNotifyOnDispute(e.target.checked)}
+                />{" "}
+                A dispute is opened on one of my jobs
+              </label>
+              <br />
+              <label>
+                <input
+                  type="checkbox"
+                  checked={notifyOnRelease}
+                  onChange={(e) => setNotifyOnRelease(e.target.checked)}
+                />{" "}
+                A milestone is released
+              </label>
+              <br />
+              <label>
+                <input
+                  type="checkbox"
+                  checked={notifyOnRefund}
+                  onChange={(e) => setNotifyOnRefund(e.target.checked)}
+                />{" "}
+                An escrow is refunded
+              </label>
+            </fieldset>
+
+            {prefMessage && (
+              <p role={prefStatus === "error" ? "alert" : "status"}>{prefMessage}</p>
+            )}
+
+            <button type="submit" disabled={prefStatus === "saving"}>
+              {prefStatus === "saving" ? "Saving…" : "Save Preferences"}
+            </button>
+          </form>
+        </section>
+      )}
     </Layout>
   );
 }
