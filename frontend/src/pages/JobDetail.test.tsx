@@ -64,6 +64,7 @@ vi.mock("../lib/prices", async (importOriginal) => ({
 vi.mock("../hooks/useEscrow", () => ({ useEscrow: () => h.escrow }));
 vi.mock("../lib/stellar", () => ({
   explorerTxUrl: (hash: string) => `https://stellar.expert/tx/${hash}`,
+  explorerContractUrl: (contractId: string) => `https://stellar.expert/contract/${contractId}`,
 }));
 vi.mock("../lib/api", () => ({
   authenticate: h.authenticate,

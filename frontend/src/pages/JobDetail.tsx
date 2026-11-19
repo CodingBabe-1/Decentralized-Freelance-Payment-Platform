@@ -301,6 +301,8 @@ export default function JobDetail() {
   const asset = escrow ? assetForContractId(escrow.token) : null;
   const decimals = asset?.decimals ?? 7;
   const symbol = asset?.symbol ?? "tokens";
+  const unreleasedAmount =
+    escrow?.milestones.reduce((acc, m) => acc + (m.amount - m.released_amount), 0n) ?? 0n;
 
   const isClient = publicKey !== null && escrow?.client === publicKey;
   const isFreelancer = publicKey !== null && escrow?.freelancer === publicKey;
@@ -515,9 +517,9 @@ export default function JobDetail() {
             <AddressField address={escrow.freelancer} label="Freelancer address" qr />
             {isFreelancer && " (you)"}
             <br />
-            Total: <strong>{fromBaseUnits(escrow.total_amount, decimals)}</strong> {symbol}{" "}
+            Total: <strong>{formatAmount(escrow.total_amount, decimals)}</strong> {symbol}{" "}
             <FiatEstimate
-              amount={fromBaseUnits(escrow.total_amount, decimals)}
+              amount={formatAmount(escrow.total_amount, decimals)}
               asset={symbol}
             />
           </p>
@@ -860,7 +862,7 @@ export default function JobDetail() {
               {disputeDeadline !== null &&
                 (deadlinePassed ? (
                   <p className="muted">
-                    The dispute timelock has passed. Unreleased funds can be reclaimed.
+                    The dispute timelock has passed. Unreleased funds ({formatAmount(unreleasedAmount, decimals)} {symbol}) can be reclaimed.
                   </p>
                 ) : (
                   <p className="muted">
@@ -877,7 +879,7 @@ export default function JobDetail() {
                   aria-busy={isPending("reclaim", `${escrowId}`)}
                   title={
                     deadlinePassed
-                      ? "Refund the unreleased funds to your wallet"
+                      ? `Refund the unreleased funds (${formatAmount(unreleasedAmount, decimals)} ${symbol}) to your wallet`
                       : "The dispute timelock has not passed yet"
                   }
                   onClick={() =>
@@ -908,12 +910,12 @@ export default function JobDetail() {
           {isActive && isClient && escrow.expiry > 0n && BigInt(now) > escrow.expiry && (
             <section>
               <p className="muted">
-                This escrow has passed its safety expiry. Unreleased funds can be reclaimed.
+                This escrow has passed its safety expiry. Unreleased funds ({formatAmount(unreleasedAmount, decimals)} {symbol}) can be reclaimed.
               </p>
               <button
                 disabled={isPending("reclaim", `${escrowId}`)}
                 aria-busy={isPending("reclaim", `${escrowId}`)}
-                title="Refund the unreleased funds to your wallet"
+                title={`Refund the unreleased funds (${formatAmount(unreleasedAmount, decimals)} ${symbol}) to your wallet`}
                 onClick={() =>
                   void reclaimExpired(escrowId).then((res) => {
                     if (res) setLastHash(res.hash);
@@ -1013,6 +1015,19 @@ export default function JobDetail() {
               >
                 <code>{lastHash.slice(0, 12)}…</code>
               </a>
+              {escrow && (
+                <>
+                  {" "}·{" "}
+                  <a
+                    href={explorerContractUrl(escrow.token)}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={`Token contract: ${escrow.token}`}
+                  >
+                    View {symbol} contract
+                  </a>
+                </>
+              )}
             </p>
           )}
         </>
