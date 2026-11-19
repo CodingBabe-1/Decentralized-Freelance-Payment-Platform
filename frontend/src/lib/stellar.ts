@@ -68,6 +68,10 @@ const EXPLORER_HOST: Record<NetworkName, string> = {
 export const explorerTxUrl = (hash: string): string =>
   `${EXPLORER_HOST[ACTIVE_NETWORK]}/tx/${hash}`;
 
+/** Link to a contract on stellar.expert for the active network. */
+export const explorerContractUrl = (contractId: string): string =>
+  `${EXPLORER_HOST[ACTIVE_NETWORK]}/contract/${contractId}`;
+
 // ---------------------------------------------------------------------------
 // Deployed contract addresses (set via .env)
 // ---------------------------------------------------------------------------

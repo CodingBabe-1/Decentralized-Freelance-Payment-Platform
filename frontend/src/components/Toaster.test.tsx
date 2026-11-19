@@ -16,6 +16,8 @@ import Toaster from "./Toaster";
 // helper is used here.
 vi.mock("../lib/stellar", () => ({
   explorerTxUrl: (hash: string) => `https://stellar.expert/explorer/testnet/tx/${hash}`,
+  explorerContractUrl: (contractId: string) =>
+    `https://stellar.expert/explorer/testnet/contract/${contractId}`,
   generateSep0007Uri: (xdr: string) => `web+stellar:tx?xdr=${encodeURIComponent(xdr)}`,
   getTransactionHashFromXdr: () => "mock-tx-hash",
   pollTransaction: vi.fn().mockImplementation(() => new Promise(() => {})),
@@ -136,5 +138,35 @@ describe("Toaster", () => {
     expect(screen.getByText("Sign on Mobile (SEP-0007)")).toBeTruthy();
     const link = screen.getByRole("link", { name: "Open in Mobile Wallet" }) as HTMLAnchorElement;
     expect(link.href).toContain("web+stellar:tx?xdr=AAAAtestxdr%3D%3D");
+  });
+
+  it("displays human-readable asset symbol, amount, and contract link (Issue #258)", () => {
+    renderToaster();
+
+    act(() => {
+      const id = api!.start("Building release milestone transaction…", {
+        assetSymbol: "USDC",
+        amount: "150.00",
+        assetContractId: "CUSDC123",
+      });
+      api!.update(
+        id,
+        "confirmed",
+        "release milestone confirmed",
+        "txhash999",
+        undefined,
+        {
+          assetSymbol: "USDC",
+          amount: "150.00",
+          assetContractId: "CUSDC123",
+        },
+      );
+    });
+
+    expect(screen.getByText(/150\.00 USDC/)).toBeTruthy();
+    const contractLink = screen.getByRole("link", {
+      name: /View token contract/i,
+    }) as HTMLAnchorElement;
+    expect(contractLink.href).toBe("https://stellar.expert/explorer/testnet/contract/CUSDC123");
   });
 });

@@ -63,6 +63,7 @@ vi.mock("../lib/prices", async (importOriginal) => ({
 vi.mock("../hooks/useEscrow", () => ({ useEscrow: () => h.escrow }));
 vi.mock("../lib/stellar", () => ({
   explorerTxUrl: (hash: string) => `https://stellar.expert/tx/${hash}`,
+  explorerContractUrl: (contractId: string) => `https://stellar.expert/contract/${contractId}`,
 }));
 vi.mock("../lib/api", () => ({
   authenticate: h.authenticate,
@@ -735,6 +736,40 @@ describe("JobDetail direct by-escrow lookup (Issue #252)", () => {
     });
     // Verifies the redundant dual 100-item fetchJobs calls are eliminated
     expect(h.fetchJobs).not.toHaveBeenCalled();
+  });
+});
+
+describe("JobDetail formatted asset symbol and amounts (Issue #258)", () => {
+  it("displays human-readable asset symbol and formatted amount in total and milestones", async () => {
+    h.wallet.publicKey = CLIENT;
+    h.escrow.getEscrow.mockResolvedValue({
+      ...ACTIVE,
+      total_amount: 100_000_000n,
+      milestones: [
+        { amount: 100_000_000n, released: false, released_amount: 25_000_000n, deadline: 0n },
+      ],
+    });
+
+    render(<JobDetail />);
+
+    expect(await screen.findByText(/2\.5 tokens released, 7\.5 tokens remaining/)).toBeTruthy();
+  });
+
+  it("renders asset contract link in last transaction banner", async () => {
+    h.wallet.publicKey = CLIENT;
+    h.escrow.getEscrow.mockResolvedValue(DISPUTED);
+    h.escrow.getDisputeDeadline.mockResolvedValue(BigInt(nowSeconds() - 10));
+
+    render(<JobDetail />);
+
+    const button = await screen.findByRole("button", { name: "Reclaim after timeout" });
+    fireEvent.click(button);
+
+    await waitFor(() => expect(h.escrow.reclaimDisputed).toHaveBeenCalledWith(7n));
+
+    const contractLink = await screen.findByRole("link", { name: /View tokens contract/i });
+    expect(contractLink).toBeTruthy();
+    expect(contractLink.getAttribute("href")).toBe("https://stellar.expert/contract/CTOKEN");
   });
 });
 
