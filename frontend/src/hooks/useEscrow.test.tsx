@@ -34,6 +34,7 @@ vi.mock("../lib/stellar", () => ({
   networkPassphrase: "Test SDF Network ; September 2015",
   pollTransaction: h.pollTransaction,
   scAddress: vi.fn(() => ({})),
+  scI128: vi.fn(() => ({})),
   scString: vi.fn(() => ({})),
   scU32: vi.fn(() => ({})),
   scU64: vi.fn(() => ({})),
@@ -441,6 +442,22 @@ describe("useEscrow transaction toasts", () => {
     expect(screen.getByText("release milestone confirmed")).toBeTruthy();
     const link = screen.getByRole("link", { name: /stellar\.expert/i }) as HTMLAnchorElement;
     expect(link.href).toBe("https://stellar.expert/explorer/testnet/tx/HASH");
+  });
+
+  it("submits release_partial with escrowId, milestoneIndex, and amount", async () => {
+    const { result } = renderEscrow();
+
+    await act(async () => {
+      await result.current.releasePartial(1n, 0, 5_000_000n);
+    });
+
+    expect(h.buildContractCall).toHaveBeenCalledWith(
+      "GCLIENT",
+      "CESCROW",
+      "release_partial",
+      expect.any(Array),
+    );
+    expect(screen.getByText("release partial milestone confirmed")).toBeTruthy();
   });
 
   it("surfaces a contract failure with the mapped message", async () => {
