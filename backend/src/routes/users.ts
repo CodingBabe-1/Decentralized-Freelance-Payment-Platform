@@ -45,6 +45,12 @@ import {
   invalidateFreelancerDirectory,
   sendCachedJson,
 } from "../lib/cache";
+import {
+  generateVerificationToken,
+  sendVerificationEmail,
+  isEmailVerified,
+  EMAIL_VERIFICATION_TOKEN_TTL_MS,
+} from "../lib/emailVerification";
 
 export const usersRouter = Router();
 
@@ -611,14 +617,91 @@ export const updateSchema = z.object({
 
 usersRouter.put("/me", requireAuth, validate(updateSchema), async (req, res, next) => {
   try {
+    const stellarAddress = res.locals.stellarAddress;
+    const updateData = req.body as z.infer<typeof updateSchema>;
+
+    // If email is being changed, validate that notification preferences are compatible
+    // Notifications can only be enabled if email is verified
+    if (updateData.email !== undefined) {
+      const hasNotificationPrefs = Object.keys(updateData).some(
+        (key) =>
+          key.startsWith("notifyOn") && updateData[key as keyof typeof updateData] === true,
+      );
+
+      if (hasNotificationPrefs && updateData.email) {
+        // Email is being set, but notifications are being enabled without verification
+        throw new AppError(
+          400,
+          "Email must be verified before enabling notifications. Set email first, verify it, then enable notifications.",
+        );
+      }
+
+      // If email is being changed, reset verification status and notification prefs
+      if (updateData.email) {
+        const verificationToken = generateVerificationToken();
+        const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_TOKEN_TTL_MS);
+
+        // Create verification token
+        await prisma.emailVerificationToken.create({
+          data: {
+            userId: (
+              await prisma.user.findUnique({
+                where: { stellarAddress },
+                select: { id: true },
+              })
+            )!.id,
+            email: updateData.email,
+            token: verificationToken,
+            expiresAt,
+          },
+        });
+
+        // Send verification email
+        try {
+          await sendVerificationEmail(updateData.email, verificationToken, stellarAddress);
+        } catch (err) {
+          console.error(`Failed to send verification email to ${updateData.email}:`, err);
+          throw new AppError(500, "Failed to send verification email. Please try again.");
+        }
+
+        // Update user with new email, but clear notification prefs and reset verification
+        Object.assign(updateData, {
+          notifyOnDispute: false,
+          notifyOnRelease: false,
+          notifyOnRefund: false,
+          notifyOnProposal: false,
+          notifyOnAssignment: false,
+          emailVerifiedAt: null, // Reset verification when email changes
+        });
+      }
+    } else {
+      // If email is not being changed but notification prefs are, check verification
+      const hasNotificationPrefs = Object.keys(updateData).some(
+        (key) =>
+          key.startsWith("notifyOn") && updateData[key as keyof typeof updateData] === true,
+      );
+
+      if (hasNotificationPrefs) {
+        const user = await prisma.user.findUnique({
+          where: { stellarAddress },
+          select: { email: true, emailVerifiedAt: true },
+        });
+
+        if (!user || !user.email || !isEmailVerified(user.emailVerifiedAt)) {
+          throw new AppError(400, "Email must be verified before enabling notifications.");
+        }
+      }
+    }
+
     const user = await prisma.user.upsert({
-      where: { stellarAddress: res.locals.stellarAddress },
-      update: req.body,
+      where: { stellarAddress },
+      update: updateData,
       create: {
-        stellarAddress: res.locals.stellarAddress,
-        ...req.body,
+        stellarAddress,
+        ...updateData,
       },
     });
+
     // Display name and bio are searchable columns in the directory.
     invalidateFreelancerDirectory();
     res.json(user);
@@ -645,6 +728,49 @@ usersRouter.post("/logout", requireAuth, async (req, res, next) => {
     });
 
     res.json({ message: "Logged out successfully" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/users/me/verify-email?token=... — verify email ownership (issue #233)
+//
+// Verifies an email address by consuming a verification token sent during signup/update.
+// After verification, the user can enable notification preferences.
+usersRouter.get("/me/verify-email", requireAuth, async (req, res, next) => {
+  try {
+    const token = String(req.query.token ?? "");
+    if (!token) throw new AppError(400, "Missing verification token");
+
+    const stellarAddress = res.locals.stellarAddress;
+
+    // Find and validate the verification token
+    const verificationToken = await prisma.emailVerificationToken.findUnique({
+      where: { token },
+      include: { user: { select: { stellarAddress: true } } },
+    });
+
+    if (!verificationToken) throw new AppError(404, "Invalid or expired verification token");
+    if (verificationToken.expiresAt < new Date())
+      throw new AppError(401, "Verification token has expired");
+    if (verificationToken.user.stellarAddress !== stellarAddress)
+      throw new AppError(403, "Verification token does not belong to this user");
+
+    // Mark email as verified and update the user
+    const user = await prisma.user.update({
+      where: { stellarAddress },
+      data: {
+        email: verificationToken.email,
+        emailVerifiedAt: new Date(),
+      },
+    });
+
+    // Delete the used token
+    await prisma.emailVerificationToken.delete({
+      where: { id: verificationToken.id },
+    });
+
+    res.json({ message: "Email verified successfully", user });
   } catch (err) {
     next(err);
   }

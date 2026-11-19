@@ -1,4 +1,5 @@
 import rateLimit from "express-rate-limit";
+import type { Store } from "express-rate-limit";
 
 /**
  * A limiter for the wallet-auth endpoints (issue #44).
@@ -16,8 +17,15 @@ import rateLimit from "express-rate-limit";
  * The response is JSON (`{ error }`) like the rest of the API; the library's
  * default is a bare-text "Too many requests", which a client parsing errors
  * would not understand.
+ *
+ * In multi-replica deployments (issue #234), provide a Redis store to ensure
+ * rate limits are shared across instances.
  */
-export function createAuthRateLimiter(options: { windowMs: number; max: number }) {
+export function createAuthRateLimiter(options: {
+  windowMs: number;
+  max: number;
+  store?: Store;
+}) {
   return rateLimit({
     windowMs: options.windowMs,
     max: options.max,
@@ -26,5 +34,6 @@ export function createAuthRateLimiter(options: { windowMs: number; max: number }
     message: {
       error: "Too many authentication attempts. Try again later.",
     },
+    store: options.store,
   });
 }
