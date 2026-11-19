@@ -34,6 +34,7 @@ import {
   pollTransaction,
   readContract,
   scAddress,
+  scI128,
   scString,
   scU32,
   scU64,
@@ -310,6 +311,19 @@ export function useEscrow() {
     [run, submit],
   );
 
+  /** Client releases a partial amount of a milestone to the freelancer. */
+  const releasePartial = useCallback(
+    (escrowId: bigint, milestoneIndex: number, amount: bigint) =>
+      run("release", `${escrowId}:${milestoneIndex}`, (pk) =>
+        submit(pk, CONTRACT_ADDRESSES.escrow, "release_partial", [
+          scU64(escrowId),
+          scU32(milestoneIndex),
+          scI128(amount),
+        ], "release partial milestone"),
+      ),
+    [run, submit],
+  );
+
   /**
    * Either party freezes the escrow by opening a dispute, then raises it.
    *
@@ -454,6 +468,7 @@ export function useEscrow() {
   return {
     createAndFund,
     releaseMilestone,
+    releasePartial,
     openDispute,
     reclaimDisputed,
     reclaimExpired,
