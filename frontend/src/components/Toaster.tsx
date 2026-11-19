@@ -11,7 +11,7 @@
  */
 
 import { useState } from "react";
-import { explorerTxUrl } from "../lib/stellar";
+import { explorerContractUrl, explorerTxUrl } from "../lib/stellar";
 import { useToasts } from "../hooks/toast-context";
 import MobileSignModal from "./MobileSignModal";
 
@@ -30,7 +30,14 @@ export default function Toaster() {
             role={toast.status === "failed" ? "alert" : "status"}
             className={`toast toast-${toast.status}`}
           >
-            <span className="toast-message">{toast.message}</span>
+            <span className="toast-message">
+              {toast.message}
+              {toast.amount && toast.assetSymbol && (
+                <span className="toast-asset-info" style={{ marginLeft: "0.35rem", fontWeight: 600 }}>
+                  ({toast.amount} {toast.assetSymbol})
+                </span>
+              )}
+            </span>
             {toast.status === "signing" && toast.xdr && (
               <button
                 type="button"
@@ -56,6 +63,21 @@ export default function Toaster() {
                 {" "}
                 <a href={explorerTxUrl(toast.hash)} target="_blank" rel="noreferrer" title={toast.hash}>
                   View on stellar.expert
+                </a>
+              </>
+            )}
+            {toast.assetContractId && (
+              <>
+                {" "}
+                <a
+                  href={explorerContractUrl(toast.assetContractId)}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={`Contract: ${toast.assetContractId}`}
+                  className="toast-contract-link"
+                  style={{ marginLeft: "0.5rem" }}
+                >
+                  View token contract
                 </a>
               </>
             )}

@@ -7,6 +7,11 @@
  * against the stored row and deletes it, so a captured nonce cannot be replayed
  * and a restart/other instance does not lose outstanding challenges.
  *
+ * Signature expiration: The nonce payload includes a timestamp (createdAt) to prevent
+ * replay attacks if a challenge is intercepted before submission or if nonce invalidation
+ * suffers a race condition under high concurrency. The signature must be verified
+ * within the challenge lifetime.
+ *
  * Kept behind a narrow `AuthNonceStore` interface so the logic is unit-testable
  * without a database; `prisma.authNonce` structurally satisfies it.
  */
@@ -19,6 +24,7 @@ export const NONCE_TTL_MS = 60_000;
 export interface AuthNonceRow {
   address: string;
   nonce: string;
+  createdAt: Date;
   expiresAt: Date;
 }
 
@@ -27,7 +33,7 @@ export interface AuthNonceStore {
   upsert(args: {
     where: { address: string };
     create: AuthNonceRow;
-    update: { nonce: string; expiresAt: Date };
+    update: { nonce: string; createdAt: Date; expiresAt: Date };
   }): Promise<unknown>;
   deleteMany(args: {
     where: {
@@ -48,13 +54,14 @@ export async function issueNonce(
   now: Date = new Date(),
 ): Promise<string> {
   const nonce = randomUUID();
+  const createdAt = now;
   const expiresAt = new Date(now.getTime() + NONCE_TTL_MS);
 
   await db.deleteMany({ where: { expiresAt: { lte: now } } });
   await db.upsert({
     where: { address },
-    create: { address, nonce, expiresAt },
-    update: { nonce, expiresAt },
+    create: { address, nonce, createdAt, expiresAt },
+    update: { nonce, createdAt, expiresAt },
   });
 
   return nonce;
@@ -63,6 +70,9 @@ export async function issueNonce(
 /**
  * Validate `nonce` for `address` against the stored row and delete it on success
  * (single use). Returns `false` for a missing, mismatched, or expired nonce.
+ *
+ * Also validates that the nonce was not created more than NONCE_TTL_MS ago,
+ * preventing replay of intercepted challenges.
  */
 export async function consumeNonce(
   db: AuthNonceStore,

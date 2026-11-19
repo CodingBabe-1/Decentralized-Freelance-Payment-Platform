@@ -20,7 +20,16 @@ import { createContext, useContext } from "react";
 /** The stage a transaction toast is in. */
 export type ToastStatus = "building" | "signing" | "confirmed" | "failed";
 
-export interface Toast {
+export interface ToastMeta {
+  /** Human-readable asset symbol (e.g. XLM, USDC). */
+  assetSymbol?: string;
+  /** Formatted human-readable amount (e.g. 100.00). */
+  amount?: string;
+  /** Token contract ID for linking to contract on stellar.expert. */
+  assetContractId?: string;
+}
+
+export interface Toast extends ToastMeta {
   id: string;
   status: ToastStatus;
   /** Human-readable line, e.g. `Awaiting signature for release milestone…`. */
@@ -42,7 +51,7 @@ export const TOAST_AUTO_DISMISS_MS: Record<ToastStatus, number | null> = {
 export interface ToastContextValue {
   toasts: Toast[];
   /** Start a toast and return the id used to advance it through the stages. */
-  start: (message: string) => string;
+  start: (message: string, meta?: ToastMeta) => string;
   /** Advance a toast; `hash` is recorded once the transaction exists. */
   update: (
     id: string,
@@ -50,6 +59,7 @@ export interface ToastContextValue {
     message?: string,
     hash?: string,
     xdr?: string,
+    meta?: ToastMeta,
   ) => void;
   /** Remove a toast. */
   dismiss: (id: string) => void;

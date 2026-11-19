@@ -6,6 +6,7 @@ const h = vi.hoisted(() => ({
   escrow: {
     getEscrow: vi.fn(),
     releaseMilestone: vi.fn(),
+    releasePartial: vi.fn(),
     openDispute: vi.fn(),
     reclaimDisputed: vi.fn(),
     reclaimExpired: vi.fn(),
@@ -63,6 +64,7 @@ vi.mock("../lib/prices", async (importOriginal) => ({
 vi.mock("../hooks/useEscrow", () => ({ useEscrow: () => h.escrow }));
 vi.mock("../lib/stellar", () => ({
   explorerTxUrl: (hash: string) => `https://stellar.expert/tx/${hash}`,
+  explorerContractUrl: (contractId: string) => `https://stellar.expert/contract/${contractId}`,
 }));
 vi.mock("../lib/api", () => ({
   authenticate: h.authenticate,
@@ -740,53 +742,76 @@ describe("JobDetail direct by-escrow lookup (Issue #252)", () => {
   });
 });
 
-describe("JobDetail reclaim confirmation modals (Issue #259)", () => {
-  it("opens confirmation modal before reclaiming disputed escrow and allows cancelling", async () => {
+describe("JobDetail partial milestone release (Issue #256)", () => {
+  it("renders progress bar and 'Release Partial' button for active escrow", async () => {
     h.wallet.publicKey = CLIENT;
-    h.escrow.getEscrow.mockResolvedValue(DISPUTED);
-    h.escrow.getDisputeDeadline.mockResolvedValue(BigInt(nowSeconds() - 10));
+    h.escrow.getEscrow.mockResolvedValue({
+      ...ACTIVE,
+      milestones: [
+        { amount: 20_000_000n, released: false, released_amount: 5_000_000n, deadline: 0n },
+      ],
+    });
 
     render(<JobDetail />);
 
-    const button = await screen.findByRole("button", { name: "Reclaim after timeout" });
-    fireEvent.click(button);
+    const partialBtn = await screen.findByRole("button", { name: "Release Partial" });
+    expect(partialBtn).toBeTruthy();
 
-    // Modal is open
-    expect(screen.getByRole("dialog")).toBeTruthy();
-    expect(screen.getByText("Confirm Dispute Timelock Reclaim")).toBeTruthy();
-    expect(screen.getByText(/Refund Amount:/i)).toBeTruthy();
-
-    // Click Cancel
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-
-    // Modal closes without invoking contract
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(h.escrow.reclaimDisputed).not.toHaveBeenCalled();
+    const progressBar = screen.getByRole("progressbar", { name: "Milestone 1 release progress" });
+    expect(progressBar).toBeTruthy();
+    expect(progressBar.getAttribute("value")).toBe("5000000");
+    expect(progressBar.getAttribute("max")).toBe("20000000");
+    expect(screen.getByText(/25% released/)).toBeTruthy();
   });
 
-  it("opens confirmation modal before reclaiming expired escrow and allows cancelling", async () => {
-    const expiredEscrow = {
-      ...ACTIVE,
-      expiry: BigInt(nowSeconds() - 3600),
-    };
+  it("toggles partial input form and enforces max amount validation", async () => {
     h.wallet.publicKey = CLIENT;
-    h.escrow.getEscrow.mockResolvedValue(expiredEscrow);
+    h.escrow.getEscrow.mockResolvedValue({
+      ...ACTIVE,
+      milestones: [
+        { amount: 20_000_000n, released: false, released_amount: 5_000_000n, deadline: 0n },
+      ],
+    });
 
     render(<JobDetail />);
 
-    const button = await screen.findByRole("button", { name: /Reclaim expired escrow/i });
-    fireEvent.click(button);
+    const partialBtn = await screen.findByRole("button", { name: "Release Partial" });
+    fireEvent.click(partialBtn);
 
-    // Modal is open
-    expect(screen.getByRole("dialog")).toBeTruthy();
-    expect(screen.getByText("Confirm Expired Escrow Reclaim")).toBeTruthy();
+    const input = screen.getByLabelText(/Release Partial Amount/);
+    expect(input).toBeTruthy();
 
-    // Click Cancel
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    // Remaining is 1.5 (15_000_000 stroops = 1.5 tokens). Entering 2.0 should trigger error
+    fireEvent.change(input, { target: { value: "2.0" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Partial Release" }));
 
-    // Modal closes without invoking contract
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(h.escrow.reclaimExpired).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByText(/Amount cannot exceed remaining balance/)).toBeTruthy();
+    expect(h.escrow.releasePartial).not.toHaveBeenCalled();
+  });
+
+  it("submits partial release when valid amount is entered", async () => {
+    h.wallet.publicKey = CLIENT;
+    h.escrow.releasePartial.mockResolvedValueOnce({ hash: "PARTIALHASH", result: undefined });
+    h.escrow.getEscrow.mockResolvedValue({
+      ...ACTIVE,
+      milestones: [
+        { amount: 20_000_000n, released: false, released_amount: 5_000_000n, deadline: 0n },
+      ],
+    });
+
+    render(<JobDetail />);
+
+    const partialBtn = await screen.findByRole("button", { name: "Release Partial" });
+    fireEvent.click(partialBtn);
+
+    const input = screen.getByLabelText(/Release Partial Amount/);
+    fireEvent.change(input, { target: { value: "0.5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Partial Release" }));
+
+    await waitFor(() => {
+      expect(h.escrow.releasePartial).toHaveBeenCalledWith(7n, 0, 5_000_000n);
+    });
   });
 });
 

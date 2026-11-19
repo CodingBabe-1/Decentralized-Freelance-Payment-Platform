@@ -22,6 +22,7 @@ import { prisma } from "../db";
 import { requireAuth } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { AppError } from "../middleware/errorHandler";
+import { validateAndSanitizeMessageBody } from "../lib/sanitizer";
 
 export const messagesRouter = Router();
 
@@ -136,8 +137,11 @@ messagesRouter.get("/:jobId", requireAuth, async (req, res, next) => {
 messagesRouter.post("/:jobId", requireAuth, validate(sendMessageSchema), async (req, res, next) => {
   try {
     const address = res.locals.stellarAddress;
-    const { body } = req.body as z.infer<typeof sendMessageSchema>;
+    let { body } = req.body as z.infer<typeof sendMessageSchema>;
     const job = await loadParticipantJob(req.params.jobId, address);
+
+    // Sanitize the message body to prevent script injection attacks
+    body = validateAndSanitizeMessageBody(body);
 
     // The sender is whoever the caller just matched: never a body field.
     const senderId = job.isClient ? job.clientId : job.freelancerId;

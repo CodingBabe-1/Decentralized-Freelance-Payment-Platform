@@ -170,7 +170,9 @@ export default function Dashboard() {
     if (!applicants[targetJobId]) {
       setLoadingApplicants(true);
       try {
-        const list = await fetchProposals(targetJobId);
+        if (!publicKey) throw new Error("Connect your wallet to view applicants");
+        const token = await authenticate(publicKey, signMessage);
+        const list = await fetchProposals(targetJobId, token);
         setApplicants((prev) => ({ ...prev, [targetJobId]: list }));
       } catch (err) {
         setActionMessage(err instanceof Error ? err.message : "Failed to load proposals");
@@ -243,7 +245,7 @@ export default function Dashboard() {
       const token = await authenticate(publicKey, signMessage);
       await assignFreelancer(targetJobId, freelancerAddress, token);
       setActionMessage("Freelancer assigned successfully!");
-      const updatedList = await fetchProposals(targetJobId);
+      const updatedList = await fetchProposals(targetJobId, token);
       setApplicants((prev) => ({ ...prev, [targetJobId]: updatedList }));
       void load(1, false);
     } catch (err) {

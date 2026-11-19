@@ -34,6 +34,7 @@ import {
   pollTransaction,
   readContract,
   scAddress,
+  scI128,
   scString,
   scU32,
   scU64,
@@ -41,7 +42,8 @@ import {
   type MilestoneInput,
 } from "../lib/stellar";
 import { asReadError, friendlyError, parseContractErrorCode } from "../lib/errors";
-import { useToasts } from "./toast-context";
+import { assetForContractId, formatAmount } from "../lib/assets";
+import { useToasts, type ToastMeta } from "./toast-context";
 import { useWallet } from "./wallet-context";
 
 export interface MilestoneView {
@@ -227,12 +229,13 @@ export function useEscrow() {
       method: string,
       args: xdr.ScVal[],
       label: string,
+      meta?: ToastMeta,
     ): Promise<SubmitResult> => {
-      const toastId = startToast(`Building ${label} transaction…`);
+      const toastId = startToast(`Building ${label} transaction…`, meta);
       try {
         const built = await buildContractCall(pk, contractId, method, args);
         const txHash = getTransactionHashFromXdr(built.xdr);
-        updateToast(toastId, "signing", `Awaiting signature for ${label}…`, undefined, built.xdr);
+        updateToast(toastId, "signing", `Awaiting signature for ${label}…`, undefined, built.xdr, meta);
 
         let confirmedHash: string;
         try {
@@ -265,15 +268,26 @@ export function useEscrow() {
           }
         }
 
-        updateToast(toastId, "confirmed", `${label} confirmed`, confirmedHash);
+        updateToast(toastId, "confirmed", `${label} confirmed`, confirmedHash, undefined, meta);
         // The return value does not survive submission, so use the simulated one.
         return { hash: confirmedHash, result: built.result };
       } catch (e) {
-        updateToast(toastId, "failed", friendlyError(e));
+        updateToast(toastId, "failed", friendlyError(e), undefined, undefined, meta);
         throw e;
       }
     },
     [sign, startToast, updateToast],
+  );
+
+  /** Read a single escrow (view). No wallet needed; rejects with a typed error. */
+  const getEscrow = useCallback(
+    (escrowId: bigint) =>
+      runRead(async () =>
+        normalizeEscrowView(
+          await readContract<EscrowView>(CONTRACT_ADDRESSES.escrow, "get", [scU64(escrowId)]),
+        ),
+      ),
+    [runRead],
   );
 
   /**
@@ -284,15 +298,32 @@ export function useEscrow() {
     (freelancer: string, token: string, milestones: MilestoneInput[], expiry: bigint) =>
       run("create", freelancer, async (pk): Promise<CreateAndFundResult> => {
         const escrow = CONTRACT_ADDRESSES.escrow;
-        const created = await submit(pk, escrow, "create", [
-          scAddress(pk),
-          scAddress(freelancer),
-          scAddress(token),
-          milestonesToScVal(milestones),
-          scU64(expiry),
-        ], "create escrow");
+        const asset = assetForContractId(token);
+        const total = milestones.reduce((sum, m) => sum + m.amount, 0n);
+        const meta: ToastMeta | undefined = asset
+          ? {
+              assetSymbol: asset.symbol,
+              amount: formatAmount(total, asset.decimals),
+              assetContractId: token,
+            }
+          : undefined;
+
+        const created = await submit(
+          pk,
+          escrow,
+          "create",
+          [
+            scAddress(pk),
+            scAddress(freelancer),
+            scAddress(token),
+            milestonesToScVal(milestones),
+            scU64(expiry),
+          ],
+          "create escrow",
+          meta,
+        );
         const id = BigInt(created.result as bigint | number | string);
-        const funded = await submit(pk, escrow, "fund", [scU64(id)], "fund escrow");
+        const funded = await submit(pk, escrow, "fund", [scU64(id)], "fund escrow", meta);
         return { id, hash: funded.hash };
       }),
     [run, submit],
@@ -300,12 +331,29 @@ export function useEscrow() {
 
   /** Client releases a milestone to the freelancer. */
   const releaseMilestone = useCallback(
-    (escrowId: bigint, milestoneIndex: number) =>
+    (escrowId: bigint, milestoneIndex: number, meta?: ToastMeta) =>
       run("release", `${escrowId}:${milestoneIndex}`, (pk) =>
-        submit(pk, CONTRACT_ADDRESSES.escrow, "release_milestone", [
+        submit(
+          pk,
+          CONTRACT_ADDRESSES.escrow,
+          "release_milestone",
+          [scU64(escrowId), scU32(milestoneIndex)],
+          "release milestone",
+          meta,
+        ),
+      ),
+    [run, submit],
+  );
+
+  /** Client releases a partial amount of a milestone to the freelancer. */
+  const releasePartial = useCallback(
+    (escrowId: bigint, milestoneIndex: number, amount: bigint) =>
+      run("release", `${escrowId}:${milestoneIndex}`, (pk) =>
+        submit(pk, CONTRACT_ADDRESSES.escrow, "release_partial", [
           scU64(escrowId),
           scU32(milestoneIndex),
-        ], "release milestone"),
+          scI128(amount),
+        ], "release partial milestone"),
       ),
     [run, submit],
   );
@@ -364,11 +412,16 @@ export function useEscrow() {
    * to `Refunded`.
    */
   const reclaimDisputed = useCallback(
-    (escrowId: bigint) =>
+    (escrowId: bigint, meta?: ToastMeta) =>
       run("reclaim", `${escrowId}`, (pk) =>
-        submit(pk, CONTRACT_ADDRESSES.escrow, "reclaim_after_dispute_timeout", [
-          scU64(escrowId),
-        ], "reclaim funds"),
+        submit(
+          pk,
+          CONTRACT_ADDRESSES.escrow,
+          "reclaim_after_dispute_timeout",
+          [scU64(escrowId)],
+          "reclaim funds",
+          meta,
+        ),
       ),
     [run, submit],
   );
@@ -383,11 +436,16 @@ export function useEscrow() {
    * clawed back.
    */
   const reclaimExpired = useCallback(
-    (escrowId: bigint) =>
+    (escrowId: bigint, meta?: ToastMeta) =>
       run("reclaim", `${escrowId}`, (pk) =>
-        submit(pk, CONTRACT_ADDRESSES.escrow, "reclaim_expired", [
-          scU64(escrowId),
-        ], "reclaim expired escrow"),
+        submit(
+          pk,
+          CONTRACT_ADDRESSES.escrow,
+          "reclaim_expired",
+          [scU64(escrowId)],
+          "reclaim expired escrow",
+          meta,
+        ),
       ),
     [run, submit],
   );
@@ -411,17 +469,6 @@ export function useEscrow() {
         ], "submit rating"),
       ),
     [run, submit],
-  );
-
-  /** Read a single escrow (view). No wallet needed; rejects with a typed error. */
-  const getEscrow = useCallback(
-    (escrowId: bigint) =>
-      runRead(async () =>
-        normalizeEscrowView(
-          await readContract<EscrowView>(CONTRACT_ADDRESSES.escrow, "get", [scU64(escrowId)]),
-        ),
-      ),
-    [runRead],
   );
 
   /**
@@ -454,6 +501,7 @@ export function useEscrow() {
   return {
     createAndFund,
     releaseMilestone,
+    releasePartial,
     openDispute,
     reclaimDisputed,
     reclaimExpired,

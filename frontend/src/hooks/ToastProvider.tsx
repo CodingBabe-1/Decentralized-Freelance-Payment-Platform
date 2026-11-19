@@ -17,6 +17,7 @@ import {
   TOAST_AUTO_DISMISS_MS,
   ToastContext,
   type Toast,
+  type ToastMeta,
   type ToastStatus,
 } from "./toast-context";
 
@@ -43,15 +44,22 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     [clearTimer],
   );
 
-  const start = useCallback((message: string) => {
+  const start = useCallback((message: string, meta?: ToastMeta) => {
     counter.current += 1;
     const id = `toast-${counter.current}`;
-    setToasts((prev) => [...prev, { id, status: "building", message }]);
+    setToasts((prev) => [...prev, { id, status: "building", message, ...meta }]);
     return id;
   }, []);
 
   const update = useCallback(
-    (id: string, status: ToastStatus, message?: string, hash?: string, xdr?: string) => {
+    (
+      id: string,
+      status: ToastStatus,
+      message?: string,
+      hash?: string,
+      xdr?: string,
+      meta?: ToastMeta,
+    ) => {
       setToasts((prev) =>
         prev.map((toast) =>
           toast.id === id
@@ -61,6 +69,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 message: message ?? toast.message,
                 ...(hash ? { hash } : {}),
                 ...(xdr !== undefined ? { xdr } : {}),
+                ...(meta?.assetSymbol !== undefined ? { assetSymbol: meta.assetSymbol } : {}),
+                ...(meta?.amount !== undefined ? { amount: meta.amount } : {}),
+                ...(meta?.assetContractId !== undefined ? { assetContractId: meta.assetContractId } : {}),
               }
             : toast,
         ),
