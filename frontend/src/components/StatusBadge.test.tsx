@@ -7,10 +7,12 @@ import StatusBadge from "./StatusBadge";
 // never rendered as an unstyled (or blank) label.
 const KNOWN: Array<[string, string]> = [
   ["Created", "badge badge-created"],
+  ["Funded", "badge badge-funded"],
   ["Active", "badge badge-active"],
   ["Completed", "badge badge-completed"],
   ["Disputed", "badge badge-disputed"],
   ["Refunded", "badge badge-refunded"],
+  ["Cancelled", "badge badge-cancelled"],
 ];
 
 afterEach(() => cleanup());
@@ -20,6 +22,11 @@ describe("StatusBadge", () => {
     render(<StatusBadge status={status} />);
 
     expect(screen.getByText(status).className).toBe(className);
+  });
+
+  it("spells the American cancelled alias the same way", () => {
+    render(<StatusBadge status="CANCELED" />);
+    expect(screen.getByText("CANCELED").className).toBe("badge badge-cancelled");
   });
 
   it("falls back to the neutral badge for a status it does not know", () => {
@@ -33,17 +40,22 @@ describe("StatusBadge", () => {
   });
 
   it("colours a status from the API and from the contract the same way", () => {
-    // `GET /api/jobs` serializes the Prisma enum (`ACTIVE`); the escrow contract
-    // returns `Active`. Both have to end up green.
+    // `GET /api/jobs` serializes the Prisma enum (`ACTIVE`, `CANCELLED`); the
+    // escrow contract returns `Active`. Both have to end up with the same badge.
     const { container } = render(
       <>
         <StatusBadge status="ACTIVE" />
         <StatusBadge status="Active" />
+        <StatusBadge status="CANCELLED" />
       </>,
     );
 
     const classes = [...container.querySelectorAll("span")].map((el) => el.className);
-    expect(classes).toEqual(["badge badge-active", "badge badge-active"]);
+    expect(classes).toEqual([
+      "badge badge-active",
+      "badge badge-active",
+      "badge badge-cancelled",
+    ]);
   });
 
   it("renders verified grant badges with badge-verified class", () => {

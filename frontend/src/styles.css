@@ -26,6 +26,14 @@
   --badge-created-text: #475569;
   --badge-created-border: #cbd5e1;
 
+  --badge-funded-bg: #e6f4f1;
+  --badge-funded-text: #0f766e;
+  --badge-funded-border: #b2ded7;
+
+  --badge-cancelled-bg: #f3f4f6;
+  --badge-cancelled-text: #4b5563;
+  --badge-cancelled-border: #d1d5db;
+
   --badge-active-bg: #e7f5ec;
   --badge-active-text: #146c2e;
   --badge-active-border: #b7e0c4;
@@ -108,6 +116,14 @@
     --badge-created-bg: #1e293b;
     --badge-created-text: #94a3b8;
     --badge-created-border: #475569;
+
+    --badge-funded-bg: #134e4a;
+    --badge-funded-text: #5eead4;
+    --badge-funded-border: #115e59;
+
+    --badge-cancelled-bg: #1f2937;
+    --badge-cancelled-text: #9ca3af;
+    --badge-cancelled-border: #374151;
 
     --badge-active-bg: #064e3b;
     --badge-active-text: #6ee7b7;
@@ -444,6 +460,18 @@ svg {
   background: var(--badge-created-bg);
   color: var(--badge-created-text);
   border-color: var(--badge-created-border);
+}
+
+.badge-funded {
+  background: var(--badge-funded-bg);
+  color: var(--badge-funded-text);
+  border-color: var(--badge-funded-border);
+}
+
+.badge-cancelled {
+  background: var(--badge-cancelled-bg);
+  color: var(--badge-cancelled-text);
+  border-color: var(--badge-cancelled-border);
 }
 
 .badge-active {

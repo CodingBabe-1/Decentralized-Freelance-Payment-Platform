@@ -43,8 +43,8 @@ import DisputeEvidence from "../components/DisputeEvidence";
 import ConfirmModal from "../components/ConfirmModal";
 import { useEscrow, type EscrowView } from "../hooks/useEscrow";
 import { useWallet } from "../hooks/wallet-context";
-import { explorerTxUrl } from "../lib/stellar";
-import { assetForContractId, fromBaseUnits, toBaseUnits } from "../lib/assets";
+import { explorerContractUrl, explorerTxUrl } from "../lib/stellar";
+import { assetForContractId, formatAmount, fromBaseUnits, toBaseUnits } from "../lib/assets";
 import {
   asReadError,
   describeReadFailure,
@@ -914,12 +914,7 @@ export default function JobDetail() {
                 disabled={isPending("reclaim", `${escrowId}`)}
                 aria-busy={isPending("reclaim", `${escrowId}`)}
                 title={`Refund the unreleased funds (${formatAmount(unreleasedAmount, decimals)} ${symbol}) to your wallet`}
-                onClick={() =>
-                  void reclaimExpired(escrowId).then((res) => {
-                    if (res) setLastHash(res.hash);
-                    void refresh();
-                  })
-                }
+                onClick={() => setConfirmReclaimType("expired")}
               >
                 {isPending("reclaim", `${escrowId}`)
                   ? "Reclaiming…"

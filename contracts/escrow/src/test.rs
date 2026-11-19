@@ -295,6 +295,27 @@ fn update_milestones_replaces_breakdown_and_total() {
 }
 
 #[test]
+fn update_milestones_emits_the_new_count_and_total() {
+    let f = fixture();
+    let id = f.c().create(
+        &f.client,
+        &f.freelancer,
+        &f.token,
+        &milestones(&f.env, &[300, 700]),
+        &10_000,
+    );
+
+    f.c()
+        .update_milestones(&id, &milestones(&f.env, &[100, 200, 300]));
+
+    let data = event_data(&f.env, "milestones_updated");
+    let count: u32 = field(&f.env, &data, "count");
+    let total: i128 = field(&f.env, &data, "total_amount");
+    assert_eq!(count, 3);
+    assert_eq!(total, 600);
+}
+
+#[test]
 fn update_milestones_after_fund_is_rejected() {
     let f = fixture();
     let id = f.funded(&[1_000]);
@@ -329,6 +350,25 @@ fn update_milestones_rejects_empty_and_bad_amounts() {
             "amounts {amounts:?} must be rejected"
         );
     }
+}
+
+#[test]
+fn update_milestones_rejects_an_overflowing_total() {
+    let f = fixture();
+    let id = f.c().create(
+        &f.client,
+        &f.freelancer,
+        &f.token,
+        &milestones(&f.env, &[300, 700]),
+        &10_000,
+    );
+
+    let res = f
+        .c()
+        .try_update_milestones(&id, &milestones(&f.env, &[i128::MAX, 1]));
+    assert!(matches!(res, Err(Ok(EscrowError::Overflow))));
+    // A rejected edit leaves the original breakdown and total in place.
+    assert_eq!(f.c().get(&id).total_amount, 1_000);
 }
 
 #[test]
@@ -546,6 +586,43 @@ fn release_partial_sum_reaching_amount_flips_released() {
     assert!(m.released);
     assert_eq!(f.c().get(&id).status, EscrowStatus::Completed);
     assert_eq!(f.balance(&f.freelancer), 1_000);
+}
+
+#[test]
+fn release_partial_emits_the_amount_paid_by_this_call() {
+    let f = fixture();
+    let id = f.funded(&[1_000]);
+
+    f.c().release_partial(&id, &0, &250);
+
+    let data = event_data(&f.env, "milestone_released");
+    let index: u32 = field(&f.env, &data, "index");
+    let amount: i128 = field(&f.env, &data, "amount");
+    assert_eq!(index, 0);
+    assert_eq!(
+        amount, 250,
+        "the event carries the partial payment, not the total"
+    );
+}
+
+#[test]
+fn release_partial_completes_only_after_every_milestone_is_paid_in_full() {
+    let f = fixture();
+    let id = f.funded(&[100, 200]);
+
+    // Paying the first milestone in full is not enough to complete the escrow.
+    f.c().release_partial(&id, &0, &100);
+    assert_eq!(f.c().get(&id).status, EscrowStatus::Active);
+
+    // A partial payment on the second milestone also leaves it Active.
+    f.c().release_partial(&id, &1, &50);
+    assert_eq!(f.c().get(&id).status, EscrowStatus::Active);
+
+    // The last release completes it and drains the contract.
+    f.c().release_partial(&id, &1, &150);
+    assert_eq!(f.c().get(&id).status, EscrowStatus::Completed);
+    assert_eq!(f.balance(&f.freelancer), 300);
+    assert_eq!(f.balance(&f.escrow), 0);
 }
 
 #[test]

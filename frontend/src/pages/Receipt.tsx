@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import Layout from "../components/Layout";
+import StatusBadge from "../components/StatusBadge";
 import { fetchReceipt, type EscrowReceiptApi } from "../lib/api";
 import { actionLabel } from "../lib/activity";
 import { explorerTxUrl } from "../lib/stellar";
@@ -94,7 +95,9 @@ export default function Receipt() {
             </p>
             <dl>
               <dt>Status</dt>
-              <dd>{receipt.job.status}</dd>
+              <dd>
+                <StatusBadge status={receipt.job.status} />
+              </dd>
               <dt>Client</dt>
               <dd>{receipt.job.client?.stellarAddress ?? "—"}</dd>
               <dt>Freelancer</dt>
