@@ -10,6 +10,9 @@ const FREELANCER = Keypair.random().publicKey();
 const STRANGER = Keypair.random().publicKey();
 
 const db = vi.hoisted(() => ({
+  // Assignment runs inside prisma.$transaction; the mock hands the same
+  // client to the callback as the transaction client.
+  $transaction: vi.fn(),
   job: {
     findUnique: vi.fn(),
     update: vi.fn(),
@@ -82,6 +85,9 @@ describe("PUT /api/jobs/:id/assign", () => {
   beforeEach(() => {
     db.job.findUnique.mockReset();
     db.job.update.mockReset();
+    db.proposal.updateMany.mockReset();
+    db.$transaction.mockReset();
+    db.$transaction.mockImplementation((fn: (tx: typeof db) => Promise<unknown>) => fn(db));
     db.user.findUnique.mockReset();
     // `requireAuth` loads the caller's current session before the handler runs.
     // A route-level freelancer lookup (no session select) still defaults to null.
@@ -296,5 +302,64 @@ describe("PUT /api/jobs/:id/assign", () => {
       where: { id: "job_1" },
       data: { freelancerId: "freelancer_user_id" },
     });
+  });
+
+  it("runs the job update and both proposal transitions inside one transaction", async () => {
+    db.job.findUnique.mockResolvedValue({
+      id: "job_1",
+      clientId: "client_user_id",
+      client: { stellarAddress: CLIENT },
+      freelancerId: null,
+    });
+    db.user.findUnique.mockImplementation(
+      ({ select }: { select?: { sessions?: unknown } }) =>
+        Promise.resolve(
+          select?.sessions
+            ? { id: "auth_client", sessions: [] }
+            : { id: "freelancer_user_id", stellarAddress: FREELANCER },
+        ),
+    );
+    db.job.update.mockResolvedValue({ id: "job_1", freelancerId: "freelancer_user_id" });
+    const token = await tokenFor(CLIENT);
+
+    const res = await fetch(`${baseUrl}/api/jobs/job_1/assign`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ freelancerAddress: FREELANCER }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+    expect(db.proposal.updateMany).toHaveBeenCalledTimes(2);
+  });
+
+  it("propagates a failure from a proposal transition so the transaction rolls back", async () => {
+    db.job.findUnique.mockResolvedValue({
+      id: "job_1",
+      clientId: "client_user_id",
+      client: { stellarAddress: CLIENT },
+      freelancerId: null,
+    });
+    db.user.findUnique.mockImplementation(
+      ({ select }: { select?: { sessions?: unknown } }) =>
+        Promise.resolve(
+          select?.sessions
+            ? { id: "auth_client", sessions: [] }
+            : { id: "freelancer_user_id", stellarAddress: FREELANCER },
+        ),
+    );
+    db.job.update.mockResolvedValue({ id: "job_1", freelancerId: "freelancer_user_id" });
+    db.proposal.updateMany.mockRejectedValue(new Error("db down"));
+    const token = await tokenFor(CLIENT);
+
+    const res = await fetch(`${baseUrl}/api/jobs/job_1/assign`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ freelancerAddress: FREELANCER }),
+    });
+
+    // The error surfaces out of $transaction, which Prisma rolls back, so the
+    // client sees a failure rather than a half-applied assignment.
+    expect(res.status).toBe(500);
   });
 });

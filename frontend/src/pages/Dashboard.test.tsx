@@ -721,7 +721,7 @@ describe("Dashboard proposals and applicants (Issue #63)", () => {
     expect(viewApplicantsBtn).toBeTruthy();
 
     fireEvent.click(viewApplicantsBtn);
-    await waitFor(() => expect(h.fetchProposals).toHaveBeenCalledWith("job-open-1"));
+    await waitFor(() => expect(h.fetchProposals).toHaveBeenCalledWith("job-open-1", "jwt-1"));
 
     expect(await screen.findByText("Pick me please")).toBeTruthy();
     const assignBtn = screen.getByRole("button", { name: "Assign" });

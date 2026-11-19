@@ -43,6 +43,7 @@ import {
 } from "../lib/schemas";
 import { isSkillTag, SKILL_TAGS, SKILL_TAG_SLUGS } from "../lib/tags";
 import { isListed, parseList } from "../lib/access";
+import { getArbitratorPanel } from "../lib/arbitratorPanel";
 import { notifyProposalSubmitted, notifyJobAssigned } from "../lib/notifications";
 
 export const jobsRouter = Router();
@@ -485,13 +486,35 @@ jobsRouter.post("/:id/proposals", requireAuth, idempotency(), validate(createPro
 });
 
 // GET /api/jobs/:id/proposals
-jobsRouter.get("/:id/proposals", async (req, res, next) => {
+//
+// Bids, rates and cover letters are private to the people involved, so this is
+// authenticated and follows the same visibility rule as the proposals embedded
+// in GET /api/jobs/:id (issue #309): the job's client sees every proposal, a
+// freelancer who applied sees only their own, and anyone else is refused.
+jobsRouter.get("/:id/proposals", requireAuth, async (req, res, next) => {
   try {
+    const job = await prisma.job.findUnique({
+      where: { id: req.params.id },
+      include: { client: true },
+    });
+    if (!job) throw new AppError(404, "Job not found");
+
+    const callerAddress = res.locals.stellarAddress;
+    const isClient = job.client?.stellarAddress === callerAddress;
+
     const proposals = await prisma.proposal.findMany({
-      where: { jobId: req.params.id },
+      where: {
+        jobId: job.id,
+        ...(isClient ? {} : { freelancer: { stellarAddress: callerAddress } }),
+      },
       include: { freelancer: true },
       orderBy: { createdAt: "desc" },
     });
+
+    if (!isClient && proposals.length === 0) {
+      throw new AppError(403, "Access denied: only the client or an applicant can view proposals");
+    }
+
     res.json(proposals);
   } catch (err) {
     next(err);
@@ -503,17 +526,12 @@ jobsRouter.put("/:id/assign", requireAuth, idempotency(), validate(assignJobSche
   try {
     const { freelancerAddress } = req.body as z.infer<typeof assignJobSchema>;
 
-    const execWithRetry = typeof withTransactionRetry === "function"
-      ? withTransactionRetry
-      : ((fn: () => Promise<unknown>) => fn());
-
-    const updated = (await execWithRetry(async () => {
-      const runTransaction = typeof prisma.$transaction === "function"
-        ? (fn: (tx: Prisma.TransactionClient) => Promise<unknown>, opts?: { isolationLevel?: Prisma.TransactionIsolationLevel }) =>
-            prisma.$transaction(fn, opts)
-        : (fn: (tx: typeof prisma) => Promise<unknown>) => fn(prisma);
-
-      return runTransaction(
+    // The job update, the winning proposal's ACCEPTED transition and the
+    // rejection of competing PENDING proposals must commit or roll back
+    // together, so a failure part-way never leaves a job assigned while its
+    // proposals are still PENDING.
+    const updated = (await withTransactionRetry(() =>
+      prisma.$transaction(
         async (tx) => {
           const job = await tx.job.findUnique({
             where: { id: req.params.id },
@@ -555,8 +573,8 @@ jobsRouter.put("/:id/assign", requireAuth, idempotency(), validate(assignJobSche
           return { assigned, job, freelancer };
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
-      );
-    })) as {
+      ),
+    )) as {
       assigned: Prisma.JobGetPayload<Record<string, never>>;
       job: Prisma.JobGetPayload<{ include: { client: true } }>;
       freelancer: Prisma.UserGetPayload<Record<string, never>>;
@@ -637,13 +655,31 @@ jobsRouter.post(
 );
 
 // GET /api/jobs/:jobId/milestones/:index/deliverables
-jobsRouter.get("/:jobId/milestones/:index/deliverables", async (req, res, next) => {
+//
+// Deliverables are confidential work product, so this mirrors the access rule of
+// GET /api/milestones/:id/deliverables: only the job's client, its assigned
+// freelancer or a panel arbitrator may read them.
+jobsRouter.get("/:jobId/milestones/:index/deliverables", requireAuth, async (req, res, next) => {
   try {
     const milestoneIndex = parseInt(req.params.index, 10);
     if (isNaN(milestoneIndex)) throw new AppError(400, "Invalid milestone index");
 
+    const job = await prisma.job.findUnique({
+      where: { id: req.params.jobId },
+      include: { client: true, freelancer: true },
+    });
+    if (!job) throw new AppError(404, "Job not found");
+
+    const stellarAddress = res.locals.stellarAddress;
+    const isParticipant =
+      job.client?.stellarAddress === stellarAddress ||
+      job.freelancer?.stellarAddress === stellarAddress;
+    if (!isParticipant && !isListed(stellarAddress, await getArbitratorPanel())) {
+      throw new AppError(403, "Access denied: you must be the client, freelancer, or arbitrator");
+    }
+
     const milestone = await prisma.milestone.findFirst({
-      where: { jobId: req.params.jobId, index: milestoneIndex },
+      where: { jobId: job.id, index: milestoneIndex },
     });
     if (!milestone) throw new AppError(404, "Milestone not found");
 

@@ -726,10 +726,11 @@ describe("submitProposal and proposals API (Issue #63)", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const list = await fetchProposals("job-1");
+    const list = await fetchProposals("job-1", "jwt-1");
     expect(list).toHaveLength(1);
-    const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toContain("/api/jobs/job-1/proposals");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer jwt-1");
   });
 
   it("assigns freelancer to a job", async () => {

@@ -38,6 +38,7 @@ import { isValidStellarAddress } from "../lib/stellarAddress";
 import { formatBaseUnitsForAsset } from "../lib/assets";
 import { buildMilestoneReminders, parseHorizonHours } from "../lib/reminders";
 import { transactionHistoryQuerySchema } from "../lib/schemas";
+import { sanitizeText } from "../lib/sanitize";
 import {
   FREELANCER_DIRECTORY_TTL_MS,
   freelancerDirectoryCache,
@@ -591,8 +592,9 @@ usersRouter.get("/:address", async (req, res, next) => {
 
 // PUT /api/users/me
 export const updateSchema = z.object({
-  displayName: z.string().trim().max(80).optional(),
-  bio: z.string().trim().max(2000).optional(),
+  // Free text is sanitised to plain text so markup cannot be stored (stored XSS).
+  displayName: z.string().trim().max(80).transform(sanitizeText).optional(),
+  bio: z.string().trim().max(2000).transform(sanitizeText).optional(),
   email: z
     .string()
     .email()

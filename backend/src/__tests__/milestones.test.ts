@@ -294,7 +294,13 @@ describe("Milestone Deliverables API (Issue #65)", () => {
       expect(json.id).toBe("deliv_idx_1");
     });
 
-    it("retrieves deliverables via job ID and milestone index", async () => {
+    it("retrieves deliverables via job ID and milestone index for the assigned freelancer", async () => {
+      const token = await tokenFor(FREELANCER);
+      h.job.findUnique.mockResolvedValue({
+        id: "job_1",
+        client: { stellarAddress: CLIENT },
+        freelancer: { stellarAddress: FREELANCER },
+      });
       h.milestone.findFirst.mockResolvedValue({
         id: "m_index_0",
         jobId: "job_1",
@@ -304,11 +310,60 @@ describe("Milestone Deliverables API (Issue #65)", () => {
         { id: "deliv_idx_1", fileName: "code.tar.gz" },
       ]);
 
-      const res = await fetch(`${baseUrl}/api/jobs/job_1/milestones/0/deliverables`);
+      const res = await fetch(`${baseUrl}/api/jobs/job_1/milestones/0/deliverables`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       expect(res.status).toBe(200);
       const json = (await res.json()) as any;
       expect(json).toHaveLength(1);
       expect(json[0].fileName).toBe("code.tar.gz");
+    });
+
+    it("allows the client to read deliverables via job ID and index", async () => {
+      const token = await tokenFor(CLIENT);
+      h.job.findUnique.mockResolvedValue({
+        id: "job_1",
+        client: { stellarAddress: CLIENT },
+        freelancer: { stellarAddress: FREELANCER },
+      });
+      h.milestone.findFirst.mockResolvedValue({ id: "m_index_0", jobId: "job_1", index: 0 });
+      h.deliverable.findMany.mockResolvedValue([]);
+
+      const res = await fetch(`${baseUrl}/api/jobs/job_1/milestones/0/deliverables`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it("rejects unauthenticated requests with 401 and never queries deliverables", async () => {
+      const res = await fetch(`${baseUrl}/api/jobs/job_1/milestones/0/deliverables`);
+      expect(res.status).toBe(401);
+      expect(h.deliverable.findMany).not.toHaveBeenCalled();
+    });
+
+    it("rejects authenticated non-participants with 403", async () => {
+      const token = await tokenFor(OTHER_USER);
+      h.job.findUnique.mockResolvedValue({
+        id: "job_1",
+        client: { stellarAddress: CLIENT },
+        freelancer: { stellarAddress: FREELANCER },
+      });
+
+      const res = await fetch(`${baseUrl}/api/jobs/job_1/milestones/0/deliverables`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status).toBe(403);
+      expect(h.deliverable.findMany).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when the job does not exist", async () => {
+      const token = await tokenFor(CLIENT);
+      h.job.findUnique.mockResolvedValue(null);
+
+      const res = await fetch(`${baseUrl}/api/jobs/job_missing/milestones/0/deliverables`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status).toBe(404);
     });
   });
 
