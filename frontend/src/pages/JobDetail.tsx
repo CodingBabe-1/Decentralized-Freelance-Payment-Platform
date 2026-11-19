@@ -40,6 +40,7 @@ import FiatEstimate from "../components/FiatEstimate";
 import JobDetailSkeleton from "../components/JobDetailSkeleton";
 import Conversation from "../components/Conversation";
 import DisputeEvidence from "../components/DisputeEvidence";
+import ConfirmModal from "../components/ConfirmModal";
 import { useEscrow, type EscrowView } from "../hooks/useEscrow";
 import { useWallet } from "../hooks/wallet-context";
 import { explorerTxUrl } from "../lib/stellar";
@@ -144,6 +145,8 @@ export default function JobDetail() {
   // Cache for the off-chain job ID resolved from escrow ID to avoid redundant scans
   const [cachedJobId, setCachedJobId] = useState<string | null>(null);
   const [offChainJob, setOffChainJob] = useState<JobApi | null>(null);
+  // Reclaim confirmation modal state (issue #259)
+  const [confirmReclaimType, setConfirmReclaimType] = useState<"disputed" | "expired" | null>(null);
 
   // Partial milestone release state (issue #256)
   const [partialMilestoneIndex, setPartialMilestoneIndex] = useState<number | null>(null);
@@ -882,12 +885,7 @@ export default function JobDetail() {
                       ? `Refund the unreleased funds (${formatAmount(unreleasedAmount, decimals)} ${symbol}) to your wallet`
                       : "The dispute timelock has not passed yet"
                   }
-                  onClick={() =>
-                    void reclaimDisputed(escrowId).then((res) => {
-                      if (res) setLastHash(res.hash);
-                      void refresh();
-                    })
-                  }
+                  onClick={() => setConfirmReclaimType("disputed")}
                 >
                   {isPending("reclaim", `${escrowId}`)
                     ? "Reclaiming…"
@@ -1029,6 +1027,44 @@ export default function JobDetail() {
                 </>
               )}
             </p>
+          )}
+
+          {confirmReclaimType && (
+            <ConfirmModal
+              isOpen={true}
+              title={
+                confirmReclaimType === "disputed"
+                  ? "Confirm Dispute Timelock Reclaim"
+                  : "Confirm Expired Escrow Reclaim"
+              }
+              description={
+                confirmReclaimType === "disputed"
+                  ? "The dispute timelock has elapsed without arbitrator resolution. Confirming will close the escrow, permanently refund all unreleased funds back to your wallet, and mark the job as refunded."
+                  : "This escrow has passed its on-chain safety expiration date. Confirming will close the job permanently and return all unreleased escrowed funds to your wallet."
+              }
+              amount={formatAmount(unreleasedAmount, decimals)}
+              assetSymbol={symbol}
+              confirmLabel={confirmReclaimType === "disputed" ? "Confirm Reclaim" : "Confirm Expired Reclaim"}
+              cancelLabel="Cancel"
+              isDangerous={true}
+              isPending={isPending("reclaim", `${escrowId}`)}
+              onCancel={() => setConfirmReclaimType(null)}
+              onConfirm={() => {
+                const type = confirmReclaimType;
+                setConfirmReclaimType(null);
+                if (type === "disputed") {
+                  void reclaimDisputed(escrowId).then((res) => {
+                    if (res) setLastHash(res.hash);
+                    void refresh();
+                  });
+                } else if (type === "expired") {
+                  void reclaimExpired(escrowId).then((res) => {
+                    if (res) setLastHash(res.hash);
+                    void refresh();
+                  });
+                }
+              }}
+            />
           )}
         </>
       )}

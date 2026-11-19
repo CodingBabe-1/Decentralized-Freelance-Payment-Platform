@@ -425,6 +425,7 @@ describe("JobDetail dispute timelock", () => {
     expect(screen.getByText(/timelock has passed/i)).toBeTruthy();
 
     fireEvent.click(button);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Reclaim" }));
 
     await waitFor(() => expect(h.escrow.reclaimDisputed).toHaveBeenCalledWith(7n));
     // The transaction is linked on the explorer like every other write.
@@ -484,6 +485,7 @@ describe("JobDetail expired escrow reclaim (#82)", () => {
 
     const button = await screen.findByRole("button", { name: /Reclaim expired escrow/i });
     fireEvent.click(button);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Expired Reclaim" }));
 
     await waitFor(() => expect(h.escrow.reclaimExpired).toHaveBeenCalledWith(7n));
     const tx = await screen.findByRole("link", { name: /RECLAIMEXPIR/ });
