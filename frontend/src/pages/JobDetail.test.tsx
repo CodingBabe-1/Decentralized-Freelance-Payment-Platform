@@ -423,6 +423,7 @@ describe("JobDetail dispute timelock", () => {
     expect(screen.getByText(/timelock has passed/i)).toBeTruthy();
 
     fireEvent.click(button);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Reclaim" }));
 
     await waitFor(() => expect(h.escrow.reclaimDisputed).toHaveBeenCalledWith(7n));
     // The transaction is linked on the explorer like every other write.
@@ -482,6 +483,7 @@ describe("JobDetail expired escrow reclaim (#82)", () => {
 
     const button = await screen.findByRole("button", { name: /Reclaim expired escrow/i });
     fireEvent.click(button);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Expired Reclaim" }));
 
     await waitFor(() => expect(h.escrow.reclaimExpired).toHaveBeenCalledWith(7n));
     const tx = await screen.findByRole("link", { name: /RECLAIMEXPIR/ });
@@ -735,6 +737,56 @@ describe("JobDetail direct by-escrow lookup (Issue #252)", () => {
     });
     // Verifies the redundant dual 100-item fetchJobs calls are eliminated
     expect(h.fetchJobs).not.toHaveBeenCalled();
+  });
+});
+
+describe("JobDetail reclaim confirmation modals (Issue #259)", () => {
+  it("opens confirmation modal before reclaiming disputed escrow and allows cancelling", async () => {
+    h.wallet.publicKey = CLIENT;
+    h.escrow.getEscrow.mockResolvedValue(DISPUTED);
+    h.escrow.getDisputeDeadline.mockResolvedValue(BigInt(nowSeconds() - 10));
+
+    render(<JobDetail />);
+
+    const button = await screen.findByRole("button", { name: "Reclaim after timeout" });
+    fireEvent.click(button);
+
+    // Modal is open
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByText("Confirm Dispute Timelock Reclaim")).toBeTruthy();
+    expect(screen.getByText(/Refund Amount:/i)).toBeTruthy();
+
+    // Click Cancel
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    // Modal closes without invoking contract
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(h.escrow.reclaimDisputed).not.toHaveBeenCalled();
+  });
+
+  it("opens confirmation modal before reclaiming expired escrow and allows cancelling", async () => {
+    const expiredEscrow = {
+      ...ACTIVE,
+      expiry: BigInt(nowSeconds() - 3600),
+    };
+    h.wallet.publicKey = CLIENT;
+    h.escrow.getEscrow.mockResolvedValue(expiredEscrow);
+
+    render(<JobDetail />);
+
+    const button = await screen.findByRole("button", { name: /Reclaim expired escrow/i });
+    fireEvent.click(button);
+
+    // Modal is open
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByText("Confirm Expired Escrow Reclaim")).toBeTruthy();
+
+    // Click Cancel
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    // Modal closes without invoking contract
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(h.escrow.reclaimExpired).not.toHaveBeenCalled();
   });
 });
 
