@@ -18,6 +18,9 @@ model User {
   stellarAddress String @unique
   displayName  String?
   email        String?
+  /// Timestamp when email was verified; null means unverified or no email set.
+  /// Notification preferences can only be enabled if email is verified (issue #233).
+  emailVerifiedAt DateTime?
   bio          String?
   notifyOnDispute Boolean @default(false)
   notifyOnRelease Boolean @default(false)
@@ -37,6 +40,7 @@ model User {
   notifications    Notification[] @relation("UserNotifications")
   messagesSent     Message[]  @relation("MessagesSent")
   sessions         UserSession[] @relation("UserSessions")
+  emailVerificationTokens EmailVerificationToken[] @relation("EmailVerificationTokens")
   webhookSubscriptions WebhookSubscription[]
 }
 
@@ -371,12 +375,31 @@ model ChainEvent {
 // ---------------------------------------------------------------------------
 // AuthNonce — single-use, short-lived challenge nonces for wallet auth
 // ---------------------------------------------------------------------------
+// AuthNonce — single-use, short-lived challenge nonces for wallet auth
+// Includes createdAt for signature expiration verification (issue #235)
+// ---------------------------------------------------------------------------
 model AuthNonce {
   /// Stellar address the nonce was issued to
   address   String   @id
   nonce     String
+  createdAt DateTime @default(now())
   expiresAt DateTime
 
+  @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// EmailVerificationToken — tokens for email ownership verification (issue #233)
+// ---------------------------------------------------------------------------
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation("EmailVerificationTokens", fields: [userId], references: [id], onDelete: Cascade)
+  email     String   /// The email address being verified
+  token     String   @unique /// Random hex token to prevent guessing
+  expiresAt DateTime /// 24-hour expiry from issuance
+
+  @@index([userId])
   @@index([expiresAt])
 }
 
