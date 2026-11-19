@@ -42,8 +42,8 @@ import Conversation from "../components/Conversation";
 import DisputeEvidence from "../components/DisputeEvidence";
 import { useEscrow, type EscrowView } from "../hooks/useEscrow";
 import { useWallet } from "../hooks/wallet-context";
-import { explorerContractUrl, explorerTxUrl } from "../lib/stellar";
-import { assetForContractId, formatAmount } from "../lib/assets";
+import { explorerTxUrl } from "../lib/stellar";
+import { assetForContractId, fromBaseUnits, toBaseUnits } from "../lib/assets";
 import {
   asReadError,
   describeReadFailure,
@@ -94,6 +94,7 @@ export default function JobDetail() {
   const {
     getEscrow,
     releaseMilestone,
+    releasePartial,
     openDispute,
     reclaimDisputed,
     reclaimExpired,
@@ -143,6 +144,11 @@ export default function JobDetail() {
   // Cache for the off-chain job ID resolved from escrow ID to avoid redundant scans
   const [cachedJobId, setCachedJobId] = useState<string | null>(null);
   const [offChainJob, setOffChainJob] = useState<JobApi | null>(null);
+
+  // Partial milestone release state (issue #256)
+  const [partialMilestoneIndex, setPartialMilestoneIndex] = useState<number | null>(null);
+  const [partialAmount, setPartialAmount] = useState<string>("");
+  const [partialError, setPartialError] = useState<string | null>(null);
 
   const escrowId = id ? parseEscrowId(id) : null;
 
@@ -520,47 +526,180 @@ export default function JobDetail() {
 
           <h2>Milestones</h2>
           <ol>
-            {escrow.milestones.map((m, i) => (
-              <li key={i} style={{ marginBottom: "1.25rem" }}>
-                <div>
-                  {formatAmount(m.amount, decimals)} {symbol}{" "}
-                  <FiatEstimate amount={formatAmount(m.amount, decimals)} asset={symbol} /> —{" "}
-                  {m.released
-                    ? "released"
-                    : `${formatAmount(m.released_amount, decimals)} ${symbol} released, ${formatAmount(
-                        m.amount - m.released_amount,
-                        decimals,
-                      )} ${symbol} remaining`}{" "}
-                  {!m.released && m.deadline > 0n && (
-                    <span className="muted">
-                      · due{" "}
-                      <time
-                        dateTime={new Date(Number(m.deadline) * 1000).toISOString()}
-                      >
-                        {formatDeadline(m.deadline)}
-                      </time>
-                      {secondsUntil(m.deadline, milestoneNow) === 0
-                        ? " (overdue)"
-                        : ` (${formatRemaining(
-                            secondsUntil(m.deadline, milestoneNow),
-                          )} left)`}
-                    </span>
-                  )}{" "}
-                  {isClient && isActive && !m.released && (
-                    <button
-                      disabled={isPending("release", `${escrowId}:${i}`)}
-                      aria-busy={isPending("release", `${escrowId}:${i}`)}
-                      onClick={() =>
-                        void releaseMilestone(escrowId, i).then((res) => {
-                          if (res) setLastHash(res.hash);
-                          void refresh();
-                        })
-                      }
+            {escrow.milestones.map((m, i) => {
+              const remaining = m.amount - m.released_amount;
+              const pct =
+                m.amount > 0n
+                  ? Math.min(100, Math.round((Number(m.released_amount) / Number(m.amount)) * 100))
+                  : 0;
+              const isPartialOpen = partialMilestoneIndex === i;
+
+              return (
+                <li key={i} style={{ marginBottom: "1.25rem" }}>
+                  <div>
+                    {fromBaseUnits(m.amount, decimals)} {symbol}{" "}
+                    <FiatEstimate amount={fromBaseUnits(m.amount, decimals)} asset={symbol} /> —{" "}
+                    {m.released
+                      ? "released"
+                      : `${fromBaseUnits(m.released_amount, decimals)} released, ${fromBaseUnits(
+                          remaining,
+                          decimals,
+                        )} remaining`}{" "}
+                    {!m.released && m.deadline > 0n && (
+                      <span className="muted">
+                        · due{" "}
+                        <time
+                          dateTime={new Date(Number(m.deadline) * 1000).toISOString()}
+                        >
+                          {formatDeadline(m.deadline)}
+                        </time>
+                        {secondsUntil(m.deadline, milestoneNow) === 0
+                          ? " (overdue)"
+                          : ` (${formatRemaining(
+                              secondsUntil(m.deadline, milestoneNow),
+                            )} left)`}
+                      </span>
+                    )}{" "}
+                    {isClient && isActive && !m.released && (
+                      <>
+                        <button
+                          disabled={isPending("release", `${escrowId}:${i}`)}
+                          aria-busy={isPending("release", `${escrowId}:${i}`)}
+                          onClick={() =>
+                            void releaseMilestone(escrowId, i).then((res) => {
+                              if (res) setLastHash(res.hash);
+                              void refresh();
+                            })
+                          }
+                        >
+                          Release
+                        </button>{" "}
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          disabled={isPending("release", `${escrowId}:${i}`)}
+                          onClick={() => {
+                            if (isPartialOpen) {
+                              setPartialMilestoneIndex(null);
+                              setPartialAmount("");
+                              setPartialError(null);
+                            } else {
+                              setPartialMilestoneIndex(i);
+                              setPartialAmount("");
+                              setPartialError(null);
+                            }
+                          }}
+                        >
+                          {isPartialOpen ? "Cancel Partial" : "Release Partial"}
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  <div style={{ marginTop: "0.35rem", marginBottom: "0.5rem" }}>
+                    <progress
+                      aria-label={`Milestone ${i + 1} release progress`}
+                      value={Number(m.released_amount)}
+                      max={Number(m.amount)}
+                      style={{ width: "100%", height: "8px" }}
                     >
-                      Release
-                    </button>
+                      {pct}%
+                    </progress>
+                    <div style={{ fontSize: "0.8rem", color: "var(--muted, #64748b)" }}>
+                      {pct}% released ({fromBaseUnits(m.released_amount, decimals)} / {fromBaseUnits(m.amount, decimals)} {symbol})
+                    </div>
+                  </div>
+
+                  {isClient && isActive && !m.released && isPartialOpen && (
+                    <form
+                      noValidate
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const numVal = Number(partialAmount);
+                        if (!partialAmount || isNaN(numVal) || numVal <= 0) {
+                          setPartialError("Please enter a valid amount greater than 0");
+                          return;
+                        }
+                        const partialBase = toBaseUnits(partialAmount, decimals);
+                        if (partialBase > remaining) {
+                          setPartialError(
+                            `Amount cannot exceed remaining balance of ${fromBaseUnits(remaining, decimals)} ${symbol}`,
+                          );
+                          return;
+                        }
+                        setPartialError(null);
+                        void releasePartial(escrowId, i, partialBase).then((res) => {
+                          if (res) setLastHash(res.hash);
+                          setPartialMilestoneIndex(null);
+                          setPartialAmount("");
+                          void refresh();
+                        });
+                      }}
+                      style={{
+                        margin: "0.5rem 0",
+                        padding: "0.75rem",
+                        background: "var(--card-bg, #f8fafc)",
+                        border: "1px solid var(--border, #e2e8f0)",
+                        borderRadius: "var(--radius, 6px)",
+                        maxWidth: "420px",
+                      }}
+                    >
+                      <label
+                        htmlFor={`partial-amount-${i}`}
+                        style={{ display: "block", marginBottom: "0.5rem", fontSize: "0.9rem" }}
+                      >
+                        Release Partial Amount ({symbol}):
+                        <input
+                          id={`partial-amount-${i}`}
+                          type="number"
+                          step={`0.${"0".repeat(decimals - 1)}1`}
+                          min="0"
+                          max={fromBaseUnits(remaining, decimals)}
+                          value={partialAmount}
+                          placeholder={`Max ${fromBaseUnits(remaining, decimals)}`}
+                          onChange={(e) => {
+                            setPartialAmount(e.target.value);
+                            setPartialError(null);
+                          }}
+                          style={{ display: "block", width: "100%", marginTop: "0.25rem" }}
+                          required
+                        />
+                      </label>
+                      {partialError && (
+                        <p
+                          role="alert"
+                          style={{
+                            color: "var(--danger, #ef4444)",
+                            fontSize: "0.85rem",
+                            margin: "0.25rem 0",
+                          }}
+                        >
+                          {partialError}
+                        </p>
+                      )}
+                      <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+                        <button
+                          type="submit"
+                          className="btn-primary"
+                          disabled={isPending("release", `${escrowId}:${i}`)}
+                          aria-busy={isPending("release", `${escrowId}:${i}`)}
+                        >
+                          Confirm Partial Release
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => {
+                            setPartialMilestoneIndex(null);
+                            setPartialAmount("");
+                            setPartialError(null);
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
                   )}
-                </div>
 
                 {/* Deliverables for this milestone (issue #65). */}
                 <div
@@ -676,7 +815,8 @@ export default function JobDetail() {
                   )}
                 </div>
               </li>
-            ))}
+            );
+          })}
           </ol>
 
           {isParticipant && isActive && (

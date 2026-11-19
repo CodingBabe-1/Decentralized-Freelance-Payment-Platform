@@ -14,6 +14,7 @@ const OTHER_USER = "GDMVLW7Y3L2R5G3U2SBNFFXN677OHZCRW3B2PZ6WJFF3TPLXJ5L4I2KJ";
 const JWT_SECRET = process.env.JWT_SECRET || "development-secret-change-in-production";
 
 const h = vi.hoisted(() => ({
+  $transaction: vi.fn(),
   job: {
     findUnique: vi.fn(),
     findMany: vi.fn(),
@@ -33,6 +34,7 @@ const h = vi.hoisted(() => ({
 
 vi.mock("../db", () => ({
   prisma: {
+    $transaction: h.$transaction,
     job: h.job,
     user: h.user,
     proposal: h.proposal,
@@ -70,6 +72,8 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  h.$transaction.mockReset();
+  h.$transaction.mockImplementation((fn: (tx: typeof h) => Promise<unknown>) => fn(h));
   h.job.findUnique.mockReset();
   h.job.findMany.mockReset();
   h.job.update.mockReset();
@@ -245,29 +249,78 @@ describe("Job Proposals API (Issue #63)", () => {
   });
 
   describe("GET /api/jobs/:id/proposals", () => {
-    it("returns proposals for the job", async () => {
-      h.proposal.findMany.mockResolvedValue([
-        {
-          id: "prop_1",
-          jobId: "job_1",
-          freelancerId: "free_1",
-          coverLetter: "Hello",
-          proposedRate: "200",
-          status: "PENDING",
-          freelancer: { stellarAddress: FREELANCER },
-        },
-      ]);
+    const openJob = { id: "job_1", client: { stellarAddress: CLIENT } };
+    const prop = (id: string, address: string) => ({
+      id,
+      jobId: "job_1",
+      freelancerId: `free_${id}`,
+      coverLetter: "Hello",
+      proposedRate: "200",
+      status: "PENDING",
+      freelancer: { stellarAddress: address },
+    });
 
+    it("rejects unauthenticated callers with 401 and never reads proposals", async () => {
       const res = await fetch(`${baseUrl}/api/jobs/job_1/proposals`);
+      expect(res.status).toBe(401);
+      expect(h.proposal.findMany).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when the job does not exist", async () => {
+      h.job.findUnique.mockResolvedValue(null);
+      const token = await tokenFor(CLIENT);
+      const res = await fetch(`${baseUrl}/api/jobs/job_missing/proposals`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status).toBe(404);
+      expect(h.proposal.findMany).not.toHaveBeenCalled();
+    });
+
+    it("returns every proposal to the job's client", async () => {
+      h.job.findUnique.mockResolvedValue(openJob);
+      h.proposal.findMany.mockResolvedValue([prop("p1", FREELANCER), prop("p2", OTHER_USER)]);
+      const token = await tokenFor(CLIENT);
+
+      const res = await fetch(`${baseUrl}/api/jobs/job_1/proposals`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       expect(res.status).toBe(200);
       const json = (await res.json()) as any;
-      expect(json).toHaveLength(1);
-      expect(json[0].id).toBe("prop_1");
+      expect(json).toHaveLength(2);
       expect(h.proposal.findMany).toHaveBeenCalledWith({
         where: { jobId: "job_1" },
         include: { freelancer: true },
         orderBy: { createdAt: "desc" },
       });
+    });
+
+    it("limits an applicant to their own proposal", async () => {
+      h.job.findUnique.mockResolvedValue(openJob);
+      h.proposal.findMany.mockResolvedValue([prop("p1", FREELANCER)]);
+      const token = await tokenFor(FREELANCER);
+
+      const res = await fetch(`${baseUrl}/api/jobs/job_1/proposals`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as any;
+      expect(json).toHaveLength(1);
+      expect(h.proposal.findMany).toHaveBeenCalledWith({
+        where: { jobId: "job_1", freelancer: { stellarAddress: FREELANCER } },
+        include: { freelancer: true },
+        orderBy: { createdAt: "desc" },
+      });
+    });
+
+    it("refuses an authenticated user who is neither client nor applicant", async () => {
+      h.job.findUnique.mockResolvedValue(openJob);
+      h.proposal.findMany.mockResolvedValue([]);
+      const token = await tokenFor(OTHER_USER);
+
+      const res = await fetch(`${baseUrl}/api/jobs/job_1/proposals`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status).toBe(403);
     });
   });
 

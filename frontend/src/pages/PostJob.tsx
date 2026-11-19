@@ -61,6 +61,7 @@ interface JobDraft {
 
 interface MilestoneRow {
   amount: string;
+  deadline?: string;
 }
 
 /** Maximum milestones per escrow — must match `MAX_MILESTONES` in the contract. */
@@ -182,7 +183,26 @@ export default function PostJob() {
   }, [publicKey]);
 
   const updateRow = (i: number, amount: string) =>
-    setRows((r) => r.map((row, idx) => (idx === i ? { amount } : row)));
+    setRows((r) => r.map((row, idx) => (idx === i ? { ...row, amount } : row)));
+
+  const updateDeadline = (i: number, deadline: string) =>
+    setRows((r) => r.map((row, idx) => (idx === i ? { ...row, deadline } : row)));
+
+  const getDeadlineError = (deadlineStr?: string): string | null => {
+    if (!deadlineStr || !deadlineStr.trim()) return null;
+    const deadlineMs = new Date(deadlineStr).getTime();
+    if (isNaN(deadlineMs)) return "Invalid deadline date";
+    const nowSec = Math.floor(Date.now() / 1000);
+    const deadlineSec = Math.floor(deadlineMs / 1000);
+    const expirySec = nowSec + Number(expiryDays) * 86400;
+    if (deadlineSec <= nowSec) {
+      return "Milestone deadline must be in the future";
+    }
+    if (deadlineSec >= expirySec) {
+      return "Milestone deadline must be earlier than the job expiry date";
+    }
+    return null;
+  };
 
   /** Toggle a skill tag, never exceeding the cap the API enforces. */
   const toggleTag = (slug: string) =>
@@ -219,7 +239,7 @@ export default function PostJob() {
     if (savedAsset?.contractId) setAssetSymbol(savedAsset.symbol);
     setRows(
       template.milestones.length > 0
-        ? template.milestones.map((milestone) => ({ amount: milestone.amount }))
+        ? template.milestones.map((milestone) => ({ amount: milestone.amount, deadline: "" }))
         : [{ amount: "" }],
     );
     setTemplateNote(`Applied “${template.name}”.`);
@@ -318,6 +338,7 @@ export default function PostJob() {
     }
     if (!asset.contractId) return;
     if (rows.some((r) => !(Number(r.amount) > 0))) return;
+    if (rows.some((r) => getDeadlineError(r.deadline) !== null)) return;
 
     setRecordError(null);
     const expirySeconds = Math.floor(Date.now() / 1000) + Number(expiryDays) * 86400;
@@ -327,7 +348,19 @@ export default function PostJob() {
     const result = await createAndFund(
       freelancer.trim(),
       asset.contractId,
-      rows.map((r) => ({ amount: toBaseUnits(r.amount, asset.decimals), deadline: 0n })),
+      rows.map((r) => {
+        let deadline = 0n;
+        if (r.deadline && r.deadline.trim()) {
+          const sec = Math.floor(new Date(r.deadline).getTime() / 1000);
+          if (!isNaN(sec) && sec > 0) {
+            deadline = BigInt(sec);
+          }
+        }
+        return {
+          amount: toBaseUnits(r.amount, asset.decimals),
+          deadline,
+        };
+      }),
       expiry,
     );
     if (!result) return;
@@ -348,16 +381,23 @@ export default function PostJob() {
       title: title.trim(),
       description: description.trim(),
       expirySeconds,
-      milestones: rows.map((r, i) => ({
-        description: `Milestone ${i + 1}`,
-        // Send the exact decimal string, not a float round-trip: the API
-        // sums base units and stores this as the canonical amount.
-        amount: formatAmount(
-          amountToBaseUnits(r.amount, asset.decimals),
-          asset.decimals,
-        ),
-        deadline: expiresAt,
-      })),
+      milestones: rows.map((r, i) => {
+        let milestoneDeadline = expiresAt;
+        if (r.deadline && r.deadline.trim()) {
+          const d = new Date(r.deadline);
+          if (!isNaN(d.getTime())) {
+            milestoneDeadline = d.toISOString();
+          }
+        }
+        return {
+          description: `Milestone ${i + 1}`,
+          amount: formatAmount(
+            amountToBaseUnits(r.amount, asset.decimals),
+            asset.decimals,
+          ),
+          deadline: milestoneDeadline,
+        };
+      }),
     });
   }
 
@@ -560,7 +600,7 @@ export default function PostJob() {
         <fieldset>
           <legend>Milestones ({asset.symbol})</legend>
           {rows.map((row, i) => (
-            <div key={i} className="milestone-row">
+            <div key={i} className="milestone-row" style={{ marginBottom: "1rem" }}>
               <label htmlFor={`milestone-amount-${i}`}>
                 Amount #{i + 1}{" "}
                 <input
@@ -573,6 +613,15 @@ export default function PostJob() {
                   required
                 />
               </label>{" "}
+              <label htmlFor={`milestone-deadline-${i}`} style={{ marginLeft: "0.5rem" }}>
+                Target deadline #{i + 1}{" "}
+                <input
+                  id={`milestone-deadline-${i}`}
+                  type="date"
+                  value={row.deadline || ""}
+                  onChange={(e) => updateDeadline(i, e.target.value)}
+                />
+              </label>{" "}
               {rows.length > 1 && (
                 <button
                   type="button"
@@ -581,6 +630,19 @@ export default function PostJob() {
                 >
                   Remove
                 </button>
+              )}
+              {getDeadlineError(row.deadline) && (
+                <div
+                  className="error"
+                  role="alert"
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "var(--danger, #ef4444)",
+                    marginTop: "0.25rem",
+                  }}
+                >
+                  {getDeadlineError(row.deadline)}
+                </div>
               )}
             </div>
           ))}

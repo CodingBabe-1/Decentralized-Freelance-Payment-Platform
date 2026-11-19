@@ -491,3 +491,22 @@ describe("DELETE /api/users/me (Issue #310)", () => {
     consoleInfoSpy.mockRestore();
   });
 });
+
+describe("updateSchema XSS sanitisation", () => {
+  it("strips markup from displayName and bio before they are stored", async () => {
+    const { updateSchema } = await import("../routes/users");
+    const parsed = updateSchema.parse({
+      displayName: "<script>alert(1)</script>Alice",
+      bio: '<img src=x onerror=alert(1)>Builder [x](javascript:alert(1))',
+    });
+    expect(parsed.displayName).toBe("Alice");
+    expect(parsed.bio).not.toMatch(/<|onerror|javascript:/i);
+    expect(parsed.bio).toContain("Builder");
+  });
+
+  it("still enforces the length limits", async () => {
+    const { updateSchema } = await import("../routes/users");
+    expect(updateSchema.safeParse({ displayName: "a".repeat(81) }).success).toBe(false);
+    expect(updateSchema.safeParse({ bio: "a".repeat(2001) }).success).toBe(false);
+  });
+});
