@@ -73,6 +73,15 @@ const schema = z.object({
   // DATABASE_TIMEOUT_MS controls query statement_timeout in ms and pool_timeout (default: 10_000).
   DATABASE_POOL_SIZE: z.coerce.number().int().positive().default(10),
   DATABASE_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+  // Redis configuration for distributed rate limiting in multi-replica deployments (issue #234).
+  // If REDIS_URL is set, rate limiters use Redis store instead of in-memory storage.
+  // Format: redis://[user:password@]host[:port][/db] or rediss:// for TLS.
+  REDIS_URL: z.string().url().optional(),
+  // Redis connection timeout and retry settings
+  REDIS_SOCKET_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
+  REDIS_SOCKET_RECONNECT_INTERVAL_MS: z.coerce.number().int().positive().default(1000),
+  // Frontend URL for email verification links (issue #233)
+  FRONTEND_URL: z.string().url().default("http://localhost:3001"),
 }).superRefine((env, ctx) => {
   const message = corsConfigError(env.CORS_ORIGIN, env.NODE_ENV);
   if (message) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["CORS_ORIGIN"], message });

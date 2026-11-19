@@ -14,6 +14,7 @@ import { checkSorobanRpcHealth } from "./lib/soroban";
 import { errorHandler } from "./middleware/errorHandler";
 import { notFoundHandler } from "./middleware/notFound";
 import { createAuthRateLimiter } from "./middleware/rateLimit";
+import { createRedisClient, RedisStore } from "./lib/redisRateLimiter";
 import { usersRouter } from "./routes/users";
 import { jobsRouter } from "./routes/jobs";
 import { escrowRouter } from "./routes/escrow";
@@ -62,7 +63,7 @@ export function requestLogger(): RequestHandler {
   };
 }
 
-export function createApp() {
+export async function createApp() {
   const app = express();
 
   app.use(tracingMiddleware());
@@ -105,7 +106,28 @@ export function createApp() {
   // Prisma rows carry BigInt ids, which `JSON.stringify` throws on; without this
   // any route that returns a job or dispute row would 500 after a successful write.
   app.set("json replacer", jsonReplacer);
-  app.use(rateLimit({ windowMs: 60_000, max: 100 }));
+
+  // Initialize Redis-backed rate limiter for multi-replica deployments (issue #234)
+  let redisStore: RedisStore | undefined;
+  try {
+    if (config.REDIS_URL) {
+      console.log("[App] Initializing Redis for distributed rate limiting...");
+      const { client } = await createRedisClient(config.REDIS_URL, {
+        socketTimeoutMs: config.REDIS_SOCKET_TIMEOUT_MS,
+        socketReconnectIntervalMs: config.REDIS_SOCKET_RECONNECT_INTERVAL_MS,
+      });
+      redisStore = new RedisStore({ client });
+      console.log("[App] Redis rate limiter initialized");
+    } else {
+      console.log("[App] Using in-memory rate limiter (REDIS_URL not set)");
+    }
+  } catch (err) {
+    console.error("[App] Failed to initialize Redis, falling back to in-memory:", err);
+    // Continue with in-memory limiter as fallback
+  }
+
+  // Global rate limiter: 100 requests per 60s per IP
+  app.use(rateLimit({ windowMs: 60_000, max: 100, store: redisStore }));
 
   // Wallet auth gets a tighter, dedicated budget on top of the global limiter
   // (issue #44). Challenge issuance writes a nonce row, and /auth is where an
@@ -115,6 +137,7 @@ export function createApp() {
   const authLimit = {
     windowMs: config.AUTH_RATE_LIMIT_WINDOW_MS,
     max: config.AUTH_RATE_LIMIT_MAX,
+    store: redisStore,
   };
   app.use("/api/users/challenge", createAuthRateLimiter(authLimit));
   app.use("/api/users/auth", createAuthRateLimiter(authLimit));
