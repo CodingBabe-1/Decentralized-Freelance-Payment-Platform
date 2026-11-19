@@ -60,6 +60,7 @@ async function renderWithEnv(env: Record<string, string>): Promise<void> {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
   // The page persists its draft in localStorage; each test must start blank.
   localStorage.clear();
   h.wallet.publicKey = "GCLIENT";
@@ -235,5 +236,71 @@ describe("PostJob total", () => {
 
   it("ignores empty amounts while the form is being filled in", async () => {
     expect(await renderTotal(["0.2", ""])).toContain("0.2");
+  });
+});
+
+
+describe("PostJob milestone deadline validation (Issue #255)", () => {
+  it("renders a deadline input for each milestone row", async () => {
+    await renderWithEnv({});
+    const deadlineInput = screen.getByLabelText(/Target deadline #1/) as HTMLInputElement;
+    expect(deadlineInput).toBeTruthy();
+    expect(deadlineInput.type).toBe("date");
+  });
+
+  it("shows an error when milestone deadline is in the past", async () => {
+    await renderWithEnv({});
+    const deadlineInput = screen.getByLabelText(/Target deadline #1/) as HTMLInputElement;
+    fireEvent.change(deadlineInput, { target: { value: "2020-01-01" } });
+    expect(screen.getByText("Milestone deadline must be in the future")).toBeTruthy();
+  });
+
+  it("shows an error when milestone deadline is after the job expiry date", async () => {
+    await renderWithEnv({});
+    // Expiry defaults to 30 days. Set deadline to 60 days from now
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 60);
+    const dateStr = futureDate.toISOString().slice(0, 10);
+
+    const deadlineInput = screen.getByLabelText(/Target deadline #1/) as HTMLInputElement;
+    fireEvent.change(deadlineInput, { target: { value: dateStr } });
+    expect(screen.getByText("Milestone deadline must be earlier than the job expiry date")).toBeTruthy();
+  });
+
+  it("passes valid milestone deadline on-chain and off-chain on submit", async () => {
+    h.escrow.createAndFund.mockResolvedValueOnce({ id: 10n, hash: "FUNDHASH" });
+    h.api.authenticate.mockResolvedValueOnce("AUTH_TOKEN");
+    h.api.createJob.mockResolvedValueOnce({ id: "job-10" });
+    h.api.linkEscrowId.mockResolvedValueOnce({});
+
+    await renderWithEnv({ VITE_USDC_CONTRACT_ID: "CUSDC" });
+
+    // Fill form
+    fireEvent.change(screen.getByLabelText(/Title/), { target: { value: "Test Job" } });
+    fireEvent.change(screen.getByLabelText(/Description/), { target: { value: "A description of the job" } });
+    fireEvent.change(screen.getByLabelText(/Freelancer Stellar address/), {
+      target: { value: "GBPLJHDI6RPLS4EEJJTM7EVEV3UNTXLFAACWA63QSTHGLWH5RO3LQ75B" },
+    });
+    fireEvent.change(screen.getByLabelText(/Amount #1/), { target: { value: "100" } });
+
+    // Set deadline to 10 days in future (within 30-day expiry)
+    const validDate = new Date();
+    validDate.setDate(validDate.getDate() + 10);
+    const validDateStr = validDate.toISOString().slice(0, 10);
+
+    fireEvent.change(screen.getByLabelText(/Target deadline #1/), { target: { value: validDateStr } });
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    // Submit form
+    fireEvent.click(screen.getByRole("button", { name: /Create & Fund Escrow/ }));
+
+    await waitFor(() => {
+      expect(h.escrow.createAndFund).toHaveBeenCalled();
+      const calledMilestones = h.escrow.createAndFund.mock.calls[0][2];
+      expect(calledMilestones[0].deadline).toBeGreaterThan(0n);
+      expect(h.api.createJob).toHaveBeenCalled();
+      const createdJobMilestones = h.api.createJob.mock.calls[0][0].milestones;
+      expect(createdJobMilestones[0].deadline).toContain(validDateStr);
+    });
   });
 });
