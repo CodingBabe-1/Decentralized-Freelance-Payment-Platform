@@ -1350,7 +1350,7 @@ fn cancel_dispute_contract_change_clears_pending_proposal() {
     f.c().set_dispute_contract(&new_dispute);
 
     f.c().cancel_dispute_contract_change();
-    let data = event_data(&f.env, "dispute_contract_proposal_cancelled");
+    let data = event_data(&f.env, "dispute_contract_cancelled");
     let cancelled: Address = field(&f.env, &data, "cancelled_contract");
     assert_eq!(cancelled, new_dispute);
 
