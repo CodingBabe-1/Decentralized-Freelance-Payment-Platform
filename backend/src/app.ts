@@ -126,8 +126,16 @@ export async function createApp() {
     // Continue with in-memory limiter as fallback
   }
 
-  // Global rate limiter: 100 requests per 60s per IP
-  app.use(rateLimit({ windowMs: 60_000, max: 100, store: redisStore }));
+  // Global rate limiter: 100 requests per 60s per IP (issue #262: standard RateLimit-* headers)
+  app.use(
+    rateLimit({
+      windowMs: 60_000,
+      max: 100,
+      standardHeaders: true,
+      legacyHeaders: false,
+      store: redisStore,
+    }),
+  );
 
   // Wallet auth gets a tighter, dedicated budget on top of the global limiter
   // (issue #44). Challenge issuance writes a nonce row, and /auth is where an

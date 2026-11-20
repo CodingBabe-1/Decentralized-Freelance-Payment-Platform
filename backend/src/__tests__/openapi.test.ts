@@ -25,12 +25,14 @@ beforeAll(async () => {
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("no port assigned");
   baseUrl = `http://127.0.0.1:${address.port}`;
-});
+}, 60000);
 
 afterAll(async () => {
-  await new Promise<void>((resolve, reject) =>
-    server.close((err) => (err ? reject(err) : resolve())),
-  );
+  if (server) {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+  }
 });
 
 afterEach(() => {
@@ -124,6 +126,32 @@ describe("OpenAPI document", () => {
     expect(schema.properties.milestones.minItems).toBe(1);
     // `amount` is a union of a positive number and an exact decimal string.
     expect(schema.properties.milestones.items.properties.amount.anyOf).toHaveLength(2);
+  });
+
+  it("documents standard rate limit header components (issue #262)", async () => {
+    const { openApiDocument } = await import("../openapi");
+    const headers = openApiDocument.components?.headers as Record<string, { description?: string; schema?: { type?: string } }>;
+    expect(headers).toBeDefined();
+    expect(headers["RateLimit-Limit"]).toBeDefined();
+    expect(headers["RateLimit-Limit"].schema?.type).toBe("integer");
+    expect(headers["RateLimit-Remaining"]).toBeDefined();
+    expect(headers["RateLimit-Reset"]).toBeDefined();
+    expect(headers["Retry-After"]).toBeDefined();
+    expect(headers["Retry-After"].description).toMatch(/exponential backoff/i);
+  });
+
+  it("documents HTTP 429 response schemas and rate limit headers on sensitive routes (issue #262)", async () => {
+    const { openApiDocument } = await import("../openapi");
+    const challengeResponses = openApiDocument.paths["/api/users/challenge"].get!.responses as Record<string, any>;
+    expect(challengeResponses["429"]).toBeDefined();
+    expect(challengeResponses["429"].headers["Retry-After"]).toBeDefined();
+    expect(challengeResponses["429"].headers["RateLimit-Limit"]).toBeDefined();
+    expect(challengeResponses["200"].headers["RateLimit-Remaining"]).toBeDefined();
+
+    const authResponses = openApiDocument.paths["/api/users/auth"].post!.responses as Record<string, any>;
+    expect(authResponses["429"]).toBeDefined();
+    expect(authResponses["429"].headers["Retry-After"]).toBeDefined();
+    expect(authResponses["429"].content["application/json"].schema).toBeDefined();
   });
 
   it("serves the Swagger UI explorer at /api/docs", async () => {

@@ -24,7 +24,14 @@
  */
 
 import { z, type ZodTypeAny } from "zod";
-import { OpenAPIRegistry, OpenApiGeneratorV3, extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
+import {
+  OpenAPIRegistry,
+  OpenApiGeneratorV3,
+  extendZodWithOpenApi,
+  type ResponseConfig,
+} from "@asteasolutions/zod-to-openapi";
+
+type HeadersConfig = NonNullable<ResponseConfig["headers"]>;
 
 import { config } from "./config";
 import {
@@ -70,6 +77,31 @@ registry.registerComponent("securitySchemes", "bearerAuth", {
   bearerFormat: "JWT",
   description:
     "JWT issued by POST /api/users/auth after the wallet signs a challenge nonce.",
+});
+
+// ---------------------------------------------------------------------------
+// Rate Limiting Header Components (Issue #262)
+// ---------------------------------------------------------------------------
+
+registry.registerComponent("headers", "RateLimit-Limit", {
+  description: "The maximum number of requests allowed within the rate limit window.",
+  schema: { type: "integer", example: 100 },
+});
+
+registry.registerComponent("headers", "RateLimit-Remaining", {
+  description: "The number of remaining requests allowed within the current rate limit window.",
+  schema: { type: "integer", example: 95 },
+});
+
+registry.registerComponent("headers", "RateLimit-Reset", {
+  description: "The remaining time until the current rate limit window resets, in seconds.",
+  schema: { type: "integer", example: 60 },
+});
+
+registry.registerComponent("headers", "Retry-After", {
+  description:
+    "The number of seconds to wait before retrying the request after encountering an HTTP 429 status. Clients should use exponential backoff with jitter.",
+  schema: { type: "integer", example: 60 },
 });
 
 // ---------------------------------------------------------------------------
@@ -222,6 +254,33 @@ export const apiError = registry.register(
   z.object({ error: z.string() }),
 );
 
+export const rateLimitError = registry.register(
+  "RateLimitError",
+  z.object({
+    error: z.string().describe("Human-readable rate limit rejection message with backoff instructions"),
+  }),
+);
+
+export const rateLimitHeaders: HeadersConfig = {
+  "RateLimit-Limit": {
+    description: "The maximum number of requests allowed within the rate limit window.",
+    schema: { type: "integer", example: 100 },
+  },
+  "RateLimit-Remaining": {
+    description: "The number of remaining requests allowed within the current rate limit window.",
+    schema: { type: "integer", example: 95 },
+  },
+  "RateLimit-Reset": {
+    description: "The remaining time until the current rate limit window resets, in seconds.",
+    schema: { type: "integer", example: 60 },
+  },
+  "Retry-After": {
+    description:
+      "Number of seconds to wait before retrying the request after encountering an HTTP 429 status. Clients should implement exponential backoff with jitter.",
+    schema: { type: "integer", example: 60 },
+  },
+};
+
 const jobListQuery = z.object({
   status: jobStatus.optional(),
   client: z.string().optional().describe("Filter by client Stellar address"),
@@ -244,9 +303,10 @@ const webhookSubscription = registry.register(
   }),
 );
 
-/** A `{ xdr }` response shared by every transaction-building route. */
-const json = (schema: ZodTypeAny, description: string) => ({
+/** A `{ xdr }` response shared by every transaction-building route, with standard rate-limit headers. */
+const json = (schema: ZodTypeAny, description: string, headers?: HeadersConfig) => ({
   description,
+  ...(headers ? { headers } : {}),
   content: { "application/json": { schema } },
 });
 
@@ -256,6 +316,16 @@ const errors = {
   403: { description: "The caller is authenticated but not allowed to do this" },
   404: { description: "The referenced job, dispute or user does not exist" },
   409: { description: "The resource is not in a state that allows this action yet" },
+  429: {
+    description:
+      "Too many requests. The client exceeded the allowed rate limit quota (100 req/min global limit or dedicated auth limits). Inspect the `Retry-After` header and wait before retrying with exponential backoff and jitter.",
+    headers: rateLimitHeaders,
+    content: {
+      "application/json": {
+        schema: rateLimitError,
+      },
+    },
+  },
 };
 
 const auth = [{ bearerAuth: [] }];
@@ -285,10 +355,13 @@ registry.registerPath({
   path: "/api/users/challenge",
   tags: ["Users"],
   summary: "Issue a single-use nonce for SEP-53 signing",
+  description:
+    "Issues a cryptographic challenge nonce. Rate limited per IP (AUTH_RATE_LIMIT_MAX / AUTH_RATE_LIMIT_WINDOW_MS). Clients must observe RateLimit-* response headers and back off when receiving HTTP 429.",
   request: { query: z.object({ address: z.string().describe("Stellar account (G…)") }) },
   responses: {
-    200: json(z.object({ nonce: z.string() }), "The nonce, valid for 60 seconds"),
+    200: json(z.object({ nonce: z.string() }), "The nonce, valid for 60 seconds", rateLimitHeaders),
     400: errors[400],
+    429: errors[429],
   },
 });
 
@@ -297,10 +370,13 @@ registry.registerPath({
   path: "/api/users/auth",
   tags: ["Users"],
   summary: "Verify a signed challenge and return a JWT",
+  description:
+    "Verifies a signature and returns a signed JWT. Rate limited per IP (AUTH_RATE_LIMIT_MAX / AUTH_RATE_LIMIT_WINDOW_MS). Clients must observe RateLimit-* response headers and back off when receiving HTTP 429.",
   request: { body: { content: { "application/json": { schema: authSchema } } } },
   responses: {
-    200: json(z.object({ token: z.string(), user: publicUser }), "Authenticated"),
+    200: json(z.object({ token: z.string(), user: publicUser }), "Authenticated", rateLimitHeaders),
     401: errors[401],
+    429: errors[429],
   },
 });
 
