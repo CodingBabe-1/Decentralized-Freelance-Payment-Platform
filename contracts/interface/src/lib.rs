@@ -86,6 +86,13 @@ pub enum EscrowError {
     InvalidDisputeTimeout = 18,
     /// The contract is paused.
     Paused = 19,
+    /// There is no pending dispute-contract rotation to apply or cancel.
+    NoPendingDisputeContract = 20,
+    /// The dispute-contract rotation timelock has not elapsed yet.
+    DisputeContractTimelockActive = 21,
+    /// The dispute contract address is not a usable contract address: it is
+    /// an account, the zero contract address, the admin, or the escrow itself.
+    InvalidDisputeContract = 22,
 }
 
 // ---------------------------------------------------------------------------

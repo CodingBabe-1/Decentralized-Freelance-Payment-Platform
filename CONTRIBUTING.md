@@ -152,7 +152,9 @@ Details of the dispute panel and timelock are in
 | Contract | Function | Notes |
 |----------|----------|-------|
 | escrow | `init(admin, dispute_contract)` | one-time; admin can rotate the dispute contract |
-| escrow | `set_dispute_contract(dispute_contract)` | admin-only; rotates the dispute contract |
+| escrow | `set_dispute_contract(dispute_contract)` | admin-only; proposes a dispute-contract rotation (2-day timelock) |
+| escrow | `apply_dispute_contract()` | admin-only; applies the pending rotation after the timelock |
+| escrow | `cancel_dispute_contract_change()` | admin-only; cancels the pending rotation |
 | escrow | `set_dispute_timeout(timeout_seconds)` | admin-only; sets the positive timeout used by future disputes |
 | escrow | `create(client, freelancer, token, milestones, expiry)` | validates amounts/expiry; returns id |
 | escrow | `update_milestones(escrow_id, milestones)` | client-only, while still `Created` (before funding); re-validates and recomputes the total |

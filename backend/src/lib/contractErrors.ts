@@ -41,6 +41,10 @@ export const ESCROW_ERROR_MESSAGES: Record<number, string> = {
   16: "The dispute timeout hasn't been reached yet.",
   17: "The milestone list exceeds the maximum allowed length (20 milestones).",
   18: "The dispute timeout must be greater than zero.",
+  19: "The escrow contract is paused.",
+  20: "There is no pending dispute contract change.",
+  21: "The dispute contract change is still timelocked.",
+  22: "The dispute contract address is invalid (it must be a contract address, not the zero address, the admin, or the escrow itself).",
 };
 
 /** `DisputeError` discriminants from `contracts/dispute/src/lib.rs`. */

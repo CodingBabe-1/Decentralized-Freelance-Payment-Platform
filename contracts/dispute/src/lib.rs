@@ -130,6 +130,18 @@ pub struct DisputeResolved {
     pub freelancer_share: i128,
 }
 
+/// Admin changed the panel approval threshold (see `docs/EVENTS.md`). Lets
+/// indexers and UIs track the active voting requirement without polling
+/// `threshold()`.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ThresholdUpdated {
+    #[topic]
+    pub admin: Address,
+    pub old_threshold: u32,
+    pub new_threshold: u32,
+}
+
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
@@ -242,10 +254,22 @@ impl DisputeContract {
         if threshold == 0 || threshold > arbitrators.len() {
             return Err(DisputeError::InvalidThreshold);
         }
+        let old_threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::Threshold)
+            .ok_or(DisputeError::NotInitialized)?;
         env.storage()
             .instance()
             .set(&DataKey::Threshold, &threshold);
         Self::extend_instance(&env);
+
+        ThresholdUpdated {
+            admin,
+            old_threshold,
+            new_threshold: threshold,
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -386,7 +410,7 @@ impl DisputeContract {
             .get(&DataKey::PanelVersion)
             .unwrap_or(0);
 
-        let dispute = Self::load(&env, dispute_id)?;
+        let mut dispute = Self::load(&env, dispute_id)?;
         if dispute.status != DisputeStatus::Raised && dispute.status != DisputeStatus::UnderReview {
             return Err(DisputeError::InvalidStatus);
         }
@@ -402,6 +426,13 @@ impl DisputeContract {
         env.storage()
             .persistent()
             .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        // The first panel approval means arbitration has started: move the
+        // dispute Raised → UnderReview. Later approvals leave it unchanged.
+        if dispute.status == DisputeStatus::Raised {
+            dispute.status = DisputeStatus::UnderReview;
+            Self::save(&env, dispute_id, &dispute);
+        }
 
         Approved {
             dispute_id,

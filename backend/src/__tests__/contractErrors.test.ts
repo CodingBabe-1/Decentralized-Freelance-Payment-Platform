@@ -40,9 +40,9 @@ describe("friendlyContractError", () => {
   });
 
   it("covers every EscrowError discriminant", () => {
-    // contracts/interface/src/lib.rs declares 1..=18 (18 = InvalidDisputeTimeout);
+    // contracts/interface/src/lib.rs declares 1..=22 (22 = InvalidDisputeContract);
     // a gap would leave an avoidable raw host error in a 400 body.
-    for (let code = 1; code <= 18; code++) {
+    for (let code = 1; code <= 22; code++) {
       expect(ESCROW_ERROR_MESSAGES[code]).toBeTruthy();
       expect(parseContractErrorCode(`Error(Contract, #${code})`)).toBe(code);
     }
