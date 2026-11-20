@@ -47,7 +47,7 @@ of the state tables keeps a transaction hash.
 | `Refunded` | `refunded` | `escrow_id: u64` | `client: Address`, `amount: i128` |
 | `MilestonesUpdated` | `milestones_updated` | `escrow_id: u64` | `count: u32`, `total_amount: i128` |
 | `DisputeContractProposed` | `dispute_contract_proposed` | `admin: Address` | `new_contract: Address`, `effective_at: u64` |
-| `DisputeContractProposalCancelled` | `dispute_contract_proposal_cancelled` | `admin: Address` | `cancelled_contract: Address` |
+| `DisputeProposalCancelled` | `dispute_proposal_cancelled` | `admin: Address` | `cancelled_contract: Address` |
 | `DisputeContractUpdated` | `dispute_contract_updated` | `admin: Address` | `old_contract: Address`, `new_contract: Address` |
 
 > Dispute-contract rotation is a two-step, timelocked flow: `set_dispute_contract`

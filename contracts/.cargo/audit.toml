@@ -1,0 +1,9 @@
+[advisories]
+# RUSTSEC-2026-0387 — crypto-bigint 0.5.5 has timing variability in its
+# multiplication routines. It is only reachable through soroban-env-host's
+# k256/p256 dependencies, which are exercised by tests and the host, never by
+# the contract wasm itself (contracts are built against soroban-env-guest).
+# No patched 0.5.x release exists; the fix ships with crypto-bigint 0.7.6 via
+# soroban-sdk 30, which is still at release-candidate stage. Remove this entry
+# when the workspace moves to soroban-sdk 30.
+ignore = ["RUSTSEC-2026-0387"]

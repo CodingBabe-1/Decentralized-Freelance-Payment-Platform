@@ -1280,7 +1280,7 @@ fn cancel_dispute_contract_change_clears_pending_proposal() {
     f.c().set_dispute_contract(&new_dispute);
 
     f.c().cancel_dispute_contract_change();
-    let data = event_data(&f.env, "dispute_contract_proposal_cancelled");
+    let data = event_data(&f.env, "dispute_proposal_cancelled");
     let cancelled: Address = field(&f.env, &data, "cancelled_contract");
     assert_eq!(cancelled, new_dispute);
 
@@ -1316,7 +1316,10 @@ fn re_proposing_replaces_pending_and_restarts_timelock() {
 
     let pending = f.c().pending_dispute_contract().unwrap();
     assert_eq!(pending.new_contract, second);
-    assert_eq!(pending.effective_at, 2_000 + DISPUTE_CONTRACT_TIMELOCK_SECONDS);
+    assert_eq!(
+        pending.effective_at,
+        2_000 + DISPUTE_CONTRACT_TIMELOCK_SECONDS
+    );
 }
 
 #[test]

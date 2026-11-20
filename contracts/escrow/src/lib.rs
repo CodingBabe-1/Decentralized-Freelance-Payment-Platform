@@ -173,7 +173,7 @@ pub struct DisputeContractProposed {
 /// Admin cancelled a pending dispute-contract rotation.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DisputeContractProposalCancelled {
+pub struct DisputeProposalCancelled {
     #[topic]
     pub admin: Address,
     pub cancelled_contract: Address,
@@ -325,7 +325,7 @@ impl EscrowContract {
             .remove(&DataKey::PendingDisputeContract);
         Self::extend_instance(&env);
 
-        DisputeContractProposalCancelled {
+        DisputeProposalCancelled {
             admin,
             cancelled_contract: pending.new_contract,
         }

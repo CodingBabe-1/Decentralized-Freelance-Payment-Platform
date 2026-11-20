@@ -51,8 +51,12 @@ fn setup() -> Fx {
     StellarAssetClient::new(&env, &token).mint(&client, &10_000);
 
     let escrow = env.register(EscrowContract, ());
+    // Escrow rejects its own address as the dispute contract (a self-call could
+    // otherwise mint authority), so deploy a distinct stand-in. These tests never
+    // resolve a dispute; they only need a valid address to initialise.
+    let dispute = env.register(EscrowContract, ());
     let reputation = env.register(ReputationContract, ());
-    EscrowContractClient::new(&env, &escrow).init(&admin, &escrow);
+    EscrowContractClient::new(&env, &escrow).init(&admin, &dispute);
     ReputationContractClient::new(&env, &reputation).init(&admin, &escrow);
 
     Fx {
