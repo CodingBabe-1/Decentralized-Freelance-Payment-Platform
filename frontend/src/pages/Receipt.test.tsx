@@ -91,6 +91,9 @@ describe("Receipt page", () => {
     // The released total, the milestone amount and the event that released it
     // all read as "1.5 USDC", which is exactly what a receipt should show.
     expect(screen.getAllByText("1.5 USDC")).toHaveLength(3);
+    // The receipt uses the same status badge as the rest of the app, so the
+    // printed/exported record has the same visual status language.
+    expect(screen.getByText("ACTIVE").className).toBe("badge badge-active");
     expect(screen.getByText("RELEASED")).toBeTruthy();
     // The action is labelled for a human, not as the raw event name.
     expect(screen.getByText("Milestone released")).toBeTruthy();
