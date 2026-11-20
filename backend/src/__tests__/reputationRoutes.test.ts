@@ -328,9 +328,9 @@ describe("GET /api/reputation/:address — weighted aggregate", () => {
     expect(res.body.count).toBe(2);
   });
 
-  it("counts only the first rating from a given rater (anti-spam)", async () => {
-    // The same rater's later rating on a much larger escrow is stored but does
-    // not move the aggregate, exactly as `RatingCounted` does on chain.
+  it("counts every escrow a rater rated, not just their first", async () => {
+    // The same rater's later rating on a much larger escrow counts too, exactly
+    // as `RatingCounted(ratee, rater, escrow_id)` does on chain.
     h.rating.findMany.mockResolvedValue([
       rating(5, "user_a", "100"),
       rating(1, "user_a", "1000"),
@@ -339,11 +339,11 @@ describe("GET /api/reputation/:address — weighted aggregate", () => {
 
     const res = await getAggregate(RATEE);
 
-    expect(res.body.averageScore).toBe(4.5);
-    expect(res.body.totalScore).toBe("9000000000");
-    expect(res.body.weight).toBe("2000000000");
-    expect(res.body.count).toBe(2);
-    // Both rows exist, so the profile can still list every review.
+    // (5*100 + 1*1000 + 4*100) / 1200 = 1900 / 1200
+    expect(res.body.totalScore).toBe("19000000000");
+    expect(res.body.weight).toBe("12000000000");
+    expect(res.body.averageScore).toBeCloseTo(1900 / 1200);
+    expect(res.body.count).toBe(3);
     expect(res.body.totalRatings).toBe(3);
   });
 

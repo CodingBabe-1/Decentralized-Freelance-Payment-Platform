@@ -12,7 +12,9 @@
 //!   **weighted** aggregate (see `docs/REPUTATION.md`) is *maintained* by
 //!   `submit` rather than derived on read:
 //!     * each counted rating is weighted by its escrow's `total_amount`,
-//!     * only the first rating from a given rater counts (anti-spam),
+//!     * every rating counts once, keyed by `(ratee, rater, escrow_id)`, so a
+//!       rater can rate the same counterparty on any number of distinct escrows
+//!       (a small first job does not mute later, larger ones),
 //!     * `weight` is the sum of weights and `total_score` the weight-summed
 //!       score, so `average = total_score / weight`.
 //!
@@ -67,11 +69,13 @@ pub struct Aggregate {
 pub enum DataKey {
     /// Keyed by (rater, escrow_id) to prevent duplicate ratings.
     Rating(Address, u64),
-    /// Keyed by (ratee, rater). Presence means that rater has already counted
-    /// toward the ratee's aggregate, so a later rating from them does not.
-    /// This replaces the old per-ratee list of every rating, which grew with
-    /// each rating and was deserialized and rewritten in full on every submit.
-    RatingCounted(Address, Address),
+    /// Keyed by (ratee, rater, escrow_id). Presence means this rater's rating
+    /// for this escrow has been folded into the ratee's aggregate. Scoped by
+    /// escrow so the same pair can be rated on every job they complete, while a
+    /// single escrow still counts at most once. This replaces the old per-ratee
+    /// list of every rating, which grew with each rating and was deserialized
+    /// and rewritten in full on every submit.
+    RatingCounted(Address, Address, u64),
     /// ratee → the maintained weighted aggregate.
     Aggregate(Address),
     Admin,
@@ -158,8 +162,8 @@ impl ReputationContract {
     ///
     /// Verifies with the escrow contract that the job is completed and that the
     /// rater and ratee are its two participants, stores the raw rating as-is,
-    /// and folds it into the ratee's aggregate (see [`get_aggregate`]) when it is
-    /// the first rating from that rater.
+    /// and folds it into the ratee's aggregate (see [`get_aggregate`]), weighted
+    /// by the escrow it is for. Each escrow counts once per rater.
     ///
     /// # Arguments
     /// - `rater`     – address submitting the rating (must be a participant)
@@ -225,11 +229,14 @@ impl ReputationContract {
             .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
 
         // Fold the rating into the ratee's aggregate, at most once per
-        // (ratee, rater): only the first rating from a given rater counts
-        // (anti-spam), weighted by the job's `total_amount`. The escrow was
+        // (ratee, rater, escrow): weighted by the job's `total_amount`, so a
+        // rater's later, larger jobs are not discarded because of an earlier
+        // small one. Duplicates on one escrow are already rejected above
+        // (`AlreadyRated`), and repeat-farming costs a real, funded escrow per
+        // rating, weighted by its amount. The escrow was
         // already read above to verify completion, so this costs no extra
         // cross-contract call and keeps `get_aggregate` a single storage read.
-        let counted_key = DataKey::RatingCounted(ratee.clone(), rater.clone());
+        let counted_key = DataKey::RatingCounted(ratee.clone(), rater.clone(), escrow_id);
         if !env.storage().persistent().has(&counted_key) {
             let weight: u64 = escrow
                 .total_amount
@@ -274,8 +281,8 @@ impl ReputationContract {
     /// Weighted reputation for `address`.
     ///
     /// Each counted rating was weighted by its escrow's `total_amount` when it
-    /// was submitted; only the first rating from a given rater counts
-    /// (anti-spam). Averaging is `total_score / weight`. Raw ratings are never
+    /// was submitted; each escrow counts once per rater. Averaging is
+    /// `total_score / weight`. Raw ratings are never
     /// modified.
     ///
     /// `submit` maintains the value, so this reads one storage entry and makes

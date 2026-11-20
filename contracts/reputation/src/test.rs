@@ -200,7 +200,7 @@ fn duplicate_rating_is_rejected() {
 }
 
 #[test]
-fn zero_weight_rating_does_not_consume_the_pair_count() {
+fn zero_weight_rating_is_stored_but_not_counted() {
     let env = Env::default();
     env.mock_all_auths();
     env.ledger().set_timestamp(1_000);
@@ -304,16 +304,32 @@ fn aggregate_weights_ratings_by_escrow_amount() {
 }
 
 #[test]
-fn anti_spam_only_first_rating_per_pair_counts() {
+fn every_escrow_between_the_same_pair_counts() {
     let f = setup();
-    // The same client completes two escrows with the same freelancer.
-    let first = f.completed_with(&f.client, 100);
-    let second = f.completed_with(&f.client, 900);
+    // A small test job, then a much larger one, between the same two parties.
+    let first = f.completed_with(&f.client, 10);
+    let second = f.completed_with(&f.client, 990);
 
     f.rep_client().submit(&f.client, &f.freelancer, &first, &5);
     f.rep_client().submit(&f.client, &f.freelancer, &second, &1);
 
-    // Only the first (rater, ratee) pair counts, so the 900 job is ignored.
+    // Both ratings count: the large job is not discarded by the earlier one.
+    let agg = f.rep_client().get_aggregate(&f.freelancer);
+    assert_eq!(agg.count, 2);
+    assert_eq!(agg.weight, 1_000);
+    // 5*10 + 1*990 = 1_040
+    assert_eq!(agg.total_score, 1_040);
+}
+
+#[test]
+fn a_single_escrow_cannot_count_twice() {
+    let f = setup();
+    let id = f.completed_with(&f.client, 100);
+    f.rep_client().submit(&f.client, &f.freelancer, &id, &5);
+
+    let res = f.rep_client().try_submit(&f.client, &f.freelancer, &id, &1);
+    assert!(matches!(res, Err(Ok(ReputationError::AlreadyRated))));
+
     let agg = f.rep_client().get_aggregate(&f.freelancer);
     assert_eq!(agg.count, 1);
     assert_eq!(agg.weight, 100);
@@ -328,9 +344,10 @@ fn raw_ratings_are_preserved_for_both_escrows() {
     f.rep_client().submit(&f.client, &f.freelancer, &first, &5);
     f.rep_client().submit(&f.client, &f.freelancer, &second, &1);
 
-    // Both raw ratings remain readable even though only one is weighted.
+    // Both raw ratings remain readable, and both are in the aggregate.
     assert_eq!(f.rep_client().get_rating(&f.client, &first).score, 5);
     assert_eq!(f.rep_client().get_rating(&f.client, &second).score, 1);
+    assert_eq!(f.rep_client().get_aggregate(&f.freelancer).count, 2);
 }
 
 #[test]

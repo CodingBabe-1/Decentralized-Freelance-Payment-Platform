@@ -4,8 +4,9 @@
  * The off-chain mirror of `reputation.get_aggregate` (issue #34).
  *
  * The contract maintains a **weighted** aggregate, not a plain mean: each
- * counted rating is weighted by its escrow's `total_amount`, and only the first
- * rating a given rater gives a given ratee counts (anti-spam). See
+ * counted rating is weighted by its escrow's `total_amount`, and each escrow
+ * counts once per rater (the `RatingCounted(ratee, rater, escrow_id)` marker),
+ * so every `Rating` row counts. See
  * `docs/REPUTATION.md` and `contracts/reputation/src/lib.rs`.
  *
  * `GET /api/reputation/:address` has to answer with the same numbers, or the
@@ -19,8 +20,6 @@ import { getAsset, toBaseUnits } from "./assets";
 /** The fields of a rating this calculation needs. */
 export interface WeightedRating {
   score: number;
-  /** The rater's user id; the anti-spam key is `(rater, ratee)`. */
-  raterId: string;
   job: {
     /** `Job.totalAmount`, a Prisma Decimal in whole units of `asset`. */
     totalAmount: { toString(): string } | string | number;
@@ -57,27 +56,19 @@ function ratingWeight(rating: WeightedRating): bigint {
 /**
  * Fold raw ratings into the contract's weighted aggregate.
  *
- * `ratings` must be ordered oldest first: "first rating from a given rater" is
- * the one that counted on chain. The route orders by `createdAt, id` so the
- * result is deterministic even when two rows share a timestamp.
- *
- * The replicate of the contract's rule matters in two places:
- * - the `(rater, ratee)` marker is set even when the weight is zero, so a later
- *   rating from that rater does **not** count either;
- * - the count is the number of counted ratings, not the number of rows.
+ * `Rating` rows are unique per `(rater, job)`, the same granularity as the
+ * contract's `(ratee, rater, escrow_id)` marker, so no extra de-duplication is
+ * needed: every row counts, except a zero-weight one, which the contract stores
+ * but does not fold in. The count is the number of counted ratings, not rows.
  */
 export function computeWeightedAggregate(
   ratings: readonly WeightedRating[],
 ): WeightedAggregate {
-  const ratersCounted = new Set<string>();
   let totalScore = 0n;
   let weight = 0n;
   let count = 0;
 
   for (const rating of ratings) {
-    if (ratersCounted.has(rating.raterId)) continue;
-    ratersCounted.add(rating.raterId);
-
     const ratingWeightBaseUnits = ratingWeight(rating);
     if (ratingWeightBaseUnits <= 0n) continue;
 

@@ -277,9 +277,10 @@ trusts. `submit(rater, ratee, escrow_id, score)`:
 - allows one rating per `(rater, escrow_id)`.
 
 The aggregate is amount-weighted: the job's `total_amount` is the weight, and
-only the first rating a given rater gives a given ratee counts toward that
-ratee's aggregate. This raises the cost of farming reputation without pretending
-to be identity-aware. See [`REPUTATION.md`](./REPUTATION.md).
+each escrow counts once per rater, so the same two parties can rate each other on
+every job they complete. Because a rating needs a funded, completed escrow and is
+weighted by its amount, farming reputation still costs real value, without
+pretending to be identity-aware. See [`REPUTATION.md`](./REPUTATION.md).
 
 ## 3. How the contracts interact
 
