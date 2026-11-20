@@ -248,7 +248,7 @@ async function simulateContractCall(
     .setTimeout(60)
     .build();
 
-  const contract: ContractErrorContract = contractId === CONTRACT_ADDRESSES.reputation
+  const contractName: ContractErrorContract = contractId === CONTRACT_ADDRESSES.reputation
     ? "reputation"
     : contractId === CONTRACT_ADDRESSES.dispute ? "dispute" : "escrow";
   let sim: SorobanRpc.Api.SimulateTransactionResponse;
@@ -256,11 +256,11 @@ async function simulateContractCall(
     sim = await server.simulateTransaction(tx);
   } catch (e) {
     // Transport failure (offline, DNS, RPC 5xx): no answer was received.
-    throw asReadError(e, contract);
+    throw asReadError(e, contractName);
   }
 
   const err = simulationError(sim);
-  if (err) throw new ContractReadError(classifyReadFailure(err, contract), friendlyError(err, contract));
+  if (err) throw new ContractReadError(classifyReadFailure(err, contractName), friendlyError(err, contractName));
 
   const success = sim as SorobanRpc.Api.SimulateTransactionSuccessResponse;
   const result = success.result?.retval ? scValToNative(success.result.retval) : undefined;

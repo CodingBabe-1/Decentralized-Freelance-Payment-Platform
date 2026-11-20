@@ -72,9 +72,9 @@ Honest snapshot of what works today (see [`docs/TESTNET.md`](./docs/TESTNET.md) 
 | `escrow` contract | ✅ Complete — milestones (editable before funding, partial releases), expiry refunds, validated inputs, TTL, events |
 | `dispute` contract | ✅ Complete — verified raise, M-of-N arbitrator panel, resolution that calls back into escrow, dispute timelock |
 | `reputation` contract | ✅ Complete — escrow-verified 1–5 ratings, amount-weighted aggregates, per-escrow anti-spam (`docs/REPUTATION.md`) |
-| Contract tests | ✅ 98 tests: 95 unit tests (escrow 57, dispute 21, reputation 17) covering every state transition and failure path, plus 3 end-to-end tests in `contracts/dispute/tests/full_flow.rs` that drive escrow + dispute + reputation together |
-| Backend tests | ✅ 138 tests |
-| Frontend tests | ✅ 156 tests (Vitest + Testing Library) — pages, components and lib helpers |
+| Contract tests | ✅ 158 tests: 155 unit tests (escrow 82, dispute 47, reputation 26) covering every state transition and failure path, plus 3 end-to-end tests in `contracts/dispute/tests/full_flow.rs` that drive escrow + dispute + reputation together |
+| Backend tests | ✅ 681 tests |
+| Frontend tests | ✅ 515 tests (Vitest + Testing Library) — pages, components and lib helpers |
 | Testnet deployment | ✅ Deployed and initialized (ids in [`deployments/testnet.json`](./deployments/testnet.json)) |
 | Frontend | 🟡 Functional MVP — connect Freighter or LOBSTR, create/fund a job, release milestones, view status, open a dispute, rate the counterparty, read reputation, browse a profile's job history and ratings, export an escrow receipt |
 | Backend API | ✅ Routes + auth implemented; contract-event indexer syncs DB state from Soroban RPC, with a dead-letter table for events it cannot apply |
