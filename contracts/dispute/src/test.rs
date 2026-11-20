@@ -5,12 +5,12 @@
 
 #![cfg(test)]
 
-use crate::{DisputeContract, DisputeContractClient, DisputeError, DisputeStatus};
+use crate::{DisputeContract, DisputeContractClient, DisputeError, DisputeStatus, ThresholdUpdated};
 use escrow::{EscrowContract, EscrowContractClient, Milestone};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
+    testutils::{Address as _, Events as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
-    Address, Env, String, Vec,
+    Address, Env, Event as _, String, Vec,
 };
 
 struct Fx {
@@ -254,6 +254,32 @@ fn set_threshold_updates_the_configured_value() {
     let f = setup_panel(3, 1);
     f.dispute_client().set_threshold(&2);
     assert_eq!(f.dispute_client().threshold(), 2);
+}
+
+#[test]
+fn set_threshold_emits_threshold_updated_event() {
+    let f = setup_panel(3, 1);
+    f.dispute_client().set_threshold(&2);
+
+    // Inspect the log before any further invocation clears it.
+    let expected = ThresholdUpdated {
+        admin: f.admin.clone(),
+        old_threshold: 1,
+        new_threshold: 2,
+    }
+    .to_xdr(&f.env, &f.dispute);
+    assert!(
+        f.env.events().all().events().contains(&expected),
+        "set_threshold must emit threshold_updated"
+    );
+}
+
+#[test]
+fn rejected_set_threshold_emits_no_event() {
+    let f = setup();
+    let res = f.dispute_client().try_set_threshold(&0);
+    assert!(matches!(res, Err(Ok(DisputeError::InvalidThreshold))));
+    assert!(f.env.events().all().events().is_empty());
 }
 
 #[test]

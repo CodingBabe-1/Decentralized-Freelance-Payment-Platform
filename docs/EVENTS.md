@@ -61,6 +61,11 @@ of the state tables keeps a transaction hash.
 | `Raised` | `raised` | `escrow_id: u64` | `dispute_id: u64`, `raised_by: Address` |
 | `Approved` | `approved` | `dispute_id: u64` | `arbitrator: Address` |
 | `DisputeResolved` | `dispute_resolved` | `escrow_id: u64` | `dispute_id: u64`, `client_share: i128`, `freelancer_share: i128` |
+| `ThresholdUpdated` | `threshold_updated` | `admin: Address` | `old_threshold: u32`, `new_threshold: u32` |
+
+> `ThresholdUpdated` is emitted by `set_threshold` only, after the new value is
+> validated and stored. `set_panel` also writes a threshold but emits no event of
+> its own; it bumps `panel_version()` instead.
 
 ## Reputation — `contracts/reputation`
 
