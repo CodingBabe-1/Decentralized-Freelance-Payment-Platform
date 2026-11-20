@@ -495,6 +495,69 @@ fn arbitrate_reaching_threshold_distributes_funds_via_escrow() {
 }
 
 #[test]
+fn first_approval_moves_dispute_to_under_review() {
+    let f = setup_panel(3, 2);
+    let (_, dispute_id) = f.raised();
+    assert_eq!(
+        f.dispute_client().get(&dispute_id).status,
+        DisputeStatus::Raised
+    );
+
+    f.dispute_client()
+        .approve(&dispute_id, &f.arbitrators.get(0).unwrap(), &400, &600);
+    assert_eq!(
+        f.dispute_client().get(&dispute_id).status,
+        DisputeStatus::UnderReview
+    );
+
+    // A second approval keeps it UnderReview and is still accepted.
+    f.dispute_client()
+        .approve(&dispute_id, &f.arbitrators.get(1).unwrap(), &400, &600);
+    assert_eq!(
+        f.dispute_client().get(&dispute_id).status,
+        DisputeStatus::UnderReview
+    );
+}
+
+#[test]
+fn rejected_approval_leaves_dispute_raised() {
+    let f = setup_panel(3, 2);
+    let (_, dispute_id) = f.raised();
+    let outsider = Address::generate(&f.env);
+    let res = f
+        .dispute_client()
+        .try_approve(&dispute_id, &outsider, &400, &600);
+    assert!(matches!(res, Err(Ok(DisputeError::Unauthorized))));
+    assert_eq!(
+        f.dispute_client().get(&dispute_id).status,
+        DisputeStatus::Raised
+    );
+}
+
+#[test]
+fn arbitrate_resolves_an_under_review_dispute_and_blocks_further_approvals() {
+    let f = setup();
+    let (_, dispute_id) = f.raised();
+    f.dispute_client()
+        .approve(&dispute_id, &f.arbitrator(), &400, &600);
+    assert_eq!(
+        f.dispute_client().get(&dispute_id).status,
+        DisputeStatus::UnderReview
+    );
+
+    f.dispute_client().arbitrate(&dispute_id, &400, &600);
+    assert_eq!(
+        f.dispute_client().get(&dispute_id).status,
+        DisputeStatus::Resolved
+    );
+
+    let res = f
+        .dispute_client()
+        .try_approve(&dispute_id, &f.arbitrator(), &400, &600);
+    assert!(matches!(res, Err(Ok(DisputeError::InvalidStatus))));
+}
+
+#[test]
 fn arbitrate_ignores_approvals_for_a_different_split() {
     let f = setup_panel(3, 2);
     let (_, dispute_id) = f.raised();

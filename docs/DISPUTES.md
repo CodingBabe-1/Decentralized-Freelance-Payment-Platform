@@ -24,6 +24,7 @@ with a configurable timelock escape hatch if they never do.
 3. At least `threshold` panel members call
        dispute.approve(dispute_id, arbitrator, client_share, freelancer_share)
      → each approval is authenticated by that arbitrator and bound to a split
+     → the first approval moves the on-chain dispute status Raised → UnderReview
 
 4. Anyone calls       dispute.arbitrate(dispute_id, client_share, freelancer_share)
      → counts approvals matching exactly that split; needs >= threshold
@@ -37,6 +38,20 @@ with a configurable timelock escape hatch if they never do.
      → only after the dispute deadline, only while Disputed
      → refunds the unreleased funds; escrow status: Disputed → Refunded
 ```
+
+### On-chain dispute status
+
+`DisputeData.status` follows `Raised → UnderReview → Resolved`:
+
+| Status | Set by |
+|--------|--------|
+| `Raised` | `dispute.raise` |
+| `UnderReview` | the first accepted `dispute.approve` (arbitration has started); later approvals leave it unchanged |
+| `Resolved` | `dispute.arbitrate`, once `threshold` approvals match the split |
+
+`approve` and `arbitrate` accept a dispute in either `Raised` or `UnderReview`;
+once `Resolved`, both return `InvalidStatus`. A rejected approval (non-panelist,
+negative share, paused) does not change the status.
 
 ## Why these choices
 

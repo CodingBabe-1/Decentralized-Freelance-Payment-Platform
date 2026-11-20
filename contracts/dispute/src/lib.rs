@@ -410,7 +410,7 @@ impl DisputeContract {
             .get(&DataKey::PanelVersion)
             .unwrap_or(0);
 
-        let dispute = Self::load(&env, dispute_id)?;
+        let mut dispute = Self::load(&env, dispute_id)?;
         if dispute.status != DisputeStatus::Raised && dispute.status != DisputeStatus::UnderReview {
             return Err(DisputeError::InvalidStatus);
         }
@@ -426,6 +426,13 @@ impl DisputeContract {
         env.storage()
             .persistent()
             .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        // The first panel approval means arbitration has started: move the
+        // dispute Raised → UnderReview. Later approvals leave it unchanged.
+        if dispute.status == DisputeStatus::Raised {
+            dispute.status = DisputeStatus::UnderReview;
+            Self::save(&env, dispute_id, &dispute);
+        }
 
         Approved {
             dispute_id,
