@@ -11,23 +11,28 @@
 //! - Raw ratings are stored unchanged and remain the source of truth. The
 //!   **weighted** aggregate (see `docs/REPUTATION.md`) is *maintained* by
 //!   `submit` rather than derived on read:
-//!     * each counted rating is weighted by its escrow's `total_amount`,
+//!     * each counted rating is weighted by its escrow's `total_amount`
+//!       **normalized to a fixed 7-decimal scale** using the escrow token's own
+//!       `decimals()`, so 18-decimal tokens neither overflow `u64` nor outweigh
+//!       7-decimal ones such as USDC 10^11 to 1,
 //!     * every rating counts once, keyed by `(ratee, rater, escrow_id)`, so a
 //!       rater can rate the same counterparty on any number of distinct escrows
 //!       (a small first job does not mute later, larger ones),
 //!     * `weight` is the sum of weights and `total_score` the weight-summed
 //!       score, so `average = total_score / weight`.
 //!
-//! `submit` already reads the escrow to verify completion, so weighting costs no
-//! extra cross-contract call, and `get_aggregate` is a single storage read with
-//! none at all (see the cost model in `docs/REPUTATION.md`).
+//! `submit` already reads the escrow to verify completion; weighting adds one
+//! read-only `decimals()` call on the escrow's token. `get_aggregate` is a single
+//! storage read with no cross-contract call (see the cost model in
+//! `docs/REPUTATION.md`).
 //! - Phase 3 (future work, not yet filed): skill-tag endorsements.
 
 #![no_std]
 
 use interface::{EscrowClient, EscrowData, EscrowStatus};
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, Address, Env,
+    contract, contracterror, contractevent, contractimpl, contracttype, token::TokenClient,
+    Address, Env,
 };
 
 // ---------------------------------------------------------------------------
@@ -37,6 +42,12 @@ use soroban_sdk::{
 const DAY_IN_LEDGERS: u32 = 17_280;
 const TTL_THRESHOLD: u32 = 30 * DAY_IN_LEDGERS;
 const TTL_EXTEND_TO: u32 = 90 * DAY_IN_LEDGERS;
+
+/// Decimal scale every rating weight is normalized to. 7 is the Stellar
+/// standard (XLM and USDC), so a weight is "whole tokens × 10^7" regardless of
+/// the token's own precision. In `u64` this tops out at ~1.8 × 10^12 whole
+/// tokens per escrow, versus ~18 for a raw 18-decimal base-unit amount.
+pub const WEIGHT_DECIMALS: u32 = 7;
 
 // ---------------------------------------------------------------------------
 // Data types
@@ -118,6 +129,9 @@ pub enum ReputationError {
     Unauthorized = 8,
     InvalidRatee = 9,
     Overflow = 10,
+    /// The escrow's token did not answer `decimals()`, so its amount cannot be
+    /// normalized into a weight.
+    TokenDecimalsUnavailable = 11,
 }
 
 // ---------------------------------------------------------------------------
@@ -238,10 +252,7 @@ impl ReputationContract {
         // cross-contract call and keeps `get_aggregate` a single storage read.
         let counted_key = DataKey::RatingCounted(ratee.clone(), rater.clone(), escrow_id);
         if !env.storage().persistent().has(&counted_key) {
-            let weight: u64 = escrow
-                .total_amount
-                .try_into()
-                .map_err(|_| ReputationError::Overflow)?;
+            let weight = Self::normalized_weight(&env, &escrow.token, escrow.total_amount)?;
             if weight > 0 {
                 env.storage().persistent().set(&counted_key, &escrow_id);
                 env.storage()
@@ -280,8 +291,8 @@ impl ReputationContract {
 
     /// Weighted reputation for `address`.
     ///
-    /// Each counted rating was weighted by its escrow's `total_amount` when it
-    /// was submitted; each escrow counts once per rater. Averaging is
+    /// Each counted rating was weighted by its escrow's `total_amount`,
+    /// normalized to [`WEIGHT_DECIMALS`], when it was submitted; each escrow counts once per rater. Averaging is
     /// `total_score / weight`. Raw ratings are never
     /// modified.
     ///
@@ -314,6 +325,46 @@ impl ReputationContract {
     // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------
+
+    /// An escrow amount as a rating weight: whole tokens scaled to
+    /// [`WEIGHT_DECIMALS`] (7), independent of the token's own precision.
+    ///
+    /// Raw base units are not comparable across tokens (10 USDC is 10^8, ten
+    /// 18-decimal tokens are 10^19) and overflow `u64` for 18-decimal jobs of
+    /// ~18 tokens or more. Tokens with more than 7 decimals are divided down
+    /// (sub-10^-7 dust truncates, and a job that truncates to zero weight is
+    /// stored but not counted); tokens with fewer are scaled up. A non-positive
+    /// amount weighs zero without touching the token.
+    fn normalized_weight(
+        env: &Env,
+        token: &Address,
+        amount: i128,
+    ) -> Result<u64, ReputationError> {
+        if amount <= 0 {
+            return Ok(0);
+        }
+        let decimals = TokenClient::new(env, token)
+            .try_decimals()
+            .map_err(|_| ReputationError::TokenDecimalsUnavailable)?
+            .map_err(|_| ReputationError::TokenDecimalsUnavailable)?;
+
+        let normalized = if decimals > WEIGHT_DECIMALS {
+            let divisor = 10i128
+                .checked_pow(decimals - WEIGHT_DECIMALS)
+                .ok_or(ReputationError::Overflow)?;
+            amount / divisor
+        } else {
+            let multiplier = 10i128
+                .checked_pow(WEIGHT_DECIMALS - decimals)
+                .ok_or(ReputationError::Overflow)?;
+            amount
+                .checked_mul(multiplier)
+                .ok_or(ReputationError::Overflow)?
+        };
+        normalized
+            .try_into()
+            .map_err(|_| ReputationError::Overflow)
+    }
 
     fn extend_instance(env: &Env) {
         env.storage()

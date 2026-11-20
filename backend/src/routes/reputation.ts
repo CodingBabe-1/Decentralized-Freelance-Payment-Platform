@@ -163,7 +163,7 @@ reputationRouter.get("/:address", async (req, res, next) => {
       where: { ratee: { stellarAddress: req.params.address } },
       select: {
         score: true,
-        job: { select: { totalAmount: true, asset: true } },
+        job: { select: { totalAmount: true } },
       },
       // Oldest first, with `id` as a tiebreak, so the order is deterministic.
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
