@@ -124,7 +124,10 @@ state machine, cross-contract calls, and the backend's role — see
 | Function | Purpose |
 |----------|---------|
 | `init(admin, dispute_contract)` | One-shot setup; records the only contract allowed to call `resolve` |
-| `set_dispute_contract(dispute_contract)` | Admin-only, for rotating the dispute contract |
+| `set_dispute_contract(dispute_contract)` | Admin-only; step 1 of a timelocked rotation — proposes a new dispute contract (takes effect after 2 days) |
+| `apply_dispute_contract()` | Admin-only; step 2 — applies the pending dispute contract once the timelock has elapsed |
+| `cancel_dispute_contract_change()` | Admin-only; cancels a pending dispute-contract rotation |
+| `pending_dispute_contract()` | View: the pending dispute contract and its `effective_at`, if any |
 | `set_dispute_timeout(timeout_seconds)` | Admin-only; configures the positive timeout for future disputes (default: 7 days) |
 | `create(client, freelancer, token, milestones, expiry)` | Creates an unfunded escrow and returns its id |
 | `update_milestones(escrow_id, milestones)` | Client-only milestone editing, before funding |

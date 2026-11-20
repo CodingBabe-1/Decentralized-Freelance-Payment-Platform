@@ -14,6 +14,8 @@
 //! - Checks-Effects-Interactions pattern is preserved in every state transition:
 //!   storage is updated *before* any token transfer.
 //! - `resolve` is callable only by the dispute contract registered in `init`.
+//! - Rotating the dispute contract is two-step and timelocked: `set_dispute_contract`
+//!   proposes, `apply_dispute_contract` applies after the timelock.
 //! - Persistent and instance storage entries are TTL-extended on every mutation
 //!   and on reads, so live escrows do not fall out of the ledger.
 //! - Errors are returned as [`EscrowError`]; no `assert!`/`unwrap` in production paths.
@@ -41,6 +43,9 @@ const DEFAULT_DISPUTE_TIMEOUT_SECONDS: u64 = 7 * 24 * 60 * 60;
 /// Soroban CPU budget and prevents `resolve`/`remaining` from being blocked
 /// by an unbounded list. Must match the cap enforced by the frontend.
 pub const MAX_MILESTONES: u32 = 20;
+/// Seconds a proposed dispute-contract rotation must wait before it can be
+/// applied. Gives participants notice to inspect the new contract or exit.
+pub const DISPUTE_CONTRACT_TIMELOCK_SECONDS: u64 = 2 * 24 * 60 * 60;
 
 // ---------------------------------------------------------------------------
 // Data types
@@ -56,6 +61,17 @@ pub enum DataKey {
     DisputeTimeoutSeconds,
     /// Timestamp after which a `Disputed` escrow may be reclaimed by the client.
     DisputeDeadline(u64),
+    /// A proposed dispute contract and the timestamp it becomes applicable.
+    PendingDisputeContract,
+}
+
+/// A queued dispute-contract rotation awaiting its timelock.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingDisputeContract {
+    pub new_contract: Address,
+    /// Unix timestamp at (or after) which the rotation may be applied.
+    pub effective_at: u64,
 }
 
 // ---------------------------------------------------------------------------
@@ -138,6 +154,26 @@ pub struct DisputeContractUpdated {
     pub new_contract: Address,
 }
 
+/// Admin proposed a new dispute contract; it takes effect only after the
+/// timelock, via `apply_dispute_contract`.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeContractProposed {
+    #[topic]
+    pub admin: Address,
+    pub new_contract: Address,
+    pub effective_at: u64,
+}
+
+/// Admin cancelled a pending dispute-contract rotation.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeContractProposalCancelled {
+    #[topic]
+    pub admin: Address,
+    pub cancelled_contract: Address,
+}
+
 // ---------------------------------------------------------------------------
 // Contract
 // ---------------------------------------------------------------------------
@@ -186,7 +222,13 @@ impl EscrowContract {
         Ok(())
     }
 
-    /// Rotate the dispute contract. Admin only.
+    /// Step 1 of a two-step rotation: propose a new dispute contract. Admin only.
+    ///
+    /// The change does not take effect immediately. It can be applied with
+    /// [`apply_dispute_contract`] once [`DISPUTE_CONTRACT_TIMELOCK_SECONDS`]
+    /// have passed, and cancelled any time before then with
+    /// [`cancel_dispute_contract_change`]. Proposing again replaces any pending
+    /// proposal and restarts the timelock.
     pub fn set_dispute_contract(env: Env, dispute_contract: Address) -> Result<(), EscrowError> {
         let admin: Address = env
             .storage()
@@ -194,6 +236,46 @@ impl EscrowContract {
             .get(&DataKey::Admin)
             .ok_or(EscrowError::NotInitialized)?;
         admin.require_auth();
+        let effective_at = env
+            .ledger()
+            .timestamp()
+            .checked_add(DISPUTE_CONTRACT_TIMELOCK_SECONDS)
+            .ok_or(EscrowError::Overflow)?;
+        env.storage().instance().set(
+            &DataKey::PendingDisputeContract,
+            &PendingDisputeContract {
+                new_contract: dispute_contract.clone(),
+                effective_at,
+            },
+        );
+        Self::extend_instance(&env);
+
+        DisputeContractProposed {
+            admin,
+            new_contract: dispute_contract,
+            effective_at,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Step 2 of a two-step rotation: apply the pending dispute contract once
+    /// the timelock has elapsed. Admin only.
+    pub fn apply_dispute_contract(env: Env) -> Result<(), EscrowError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(EscrowError::NotInitialized)?;
+        admin.require_auth();
+        let pending: PendingDisputeContract = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingDisputeContract)
+            .ok_or(EscrowError::NoPendingDisputeContract)?;
+        if env.ledger().timestamp() < pending.effective_at {
+            return Err(EscrowError::DisputeContractTimelockActive);
+        }
         let old_contract: Address = env
             .storage()
             .instance()
@@ -201,13 +283,42 @@ impl EscrowContract {
             .ok_or(EscrowError::NotInitialized)?;
         env.storage()
             .instance()
-            .set(&DataKey::DisputeContract, &dispute_contract);
+            .set(&DataKey::DisputeContract, &pending.new_contract);
+        env.storage()
+            .instance()
+            .remove(&DataKey::PendingDisputeContract);
         Self::extend_instance(&env);
 
         DisputeContractUpdated {
             admin,
             old_contract,
-            new_contract: dispute_contract,
+            new_contract: pending.new_contract,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Cancel a pending dispute-contract rotation. Admin only.
+    pub fn cancel_dispute_contract_change(env: Env) -> Result<(), EscrowError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(EscrowError::NotInitialized)?;
+        admin.require_auth();
+        let pending: PendingDisputeContract = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingDisputeContract)
+            .ok_or(EscrowError::NoPendingDisputeContract)?;
+        env.storage()
+            .instance()
+            .remove(&DataKey::PendingDisputeContract);
+        Self::extend_instance(&env);
+
+        DisputeContractProposalCancelled {
+            admin,
+            cancelled_contract: pending.new_contract,
         }
         .publish(&env);
         Ok(())
@@ -739,6 +850,13 @@ impl EscrowContract {
             .instance()
             .get(&DataKey::DisputeContract)
             .ok_or(EscrowError::NotInitialized)
+    }
+
+    /// Read the pending dispute-contract rotation, if any (view).
+    pub fn pending_dispute_contract(env: Env) -> Option<PendingDisputeContract> {
+        env.storage()
+            .instance()
+            .get(&DataKey::PendingDisputeContract)
     }
 
     /// Read the configured dispute timeout in seconds (view).

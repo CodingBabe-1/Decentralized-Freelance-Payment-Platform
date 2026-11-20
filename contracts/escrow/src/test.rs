@@ -12,7 +12,10 @@
 
 extern crate std;
 
-use crate::{EscrowContract, EscrowContractClient, EscrowError, EscrowStatus, Milestone};
+use crate::{
+    EscrowContract, EscrowContractClient, EscrowError, EscrowStatus, Milestone,
+    DISPUTE_CONTRACT_TIMELOCK_SECONDS,
+};
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
@@ -1152,15 +1155,47 @@ fn get_unknown_escrow_is_rejected() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn set_dispute_contract_rotates_and_emits_event() {
+fn set_dispute_contract_only_proposes_until_timelock_elapses() {
     let f = fixture();
     let admin = Address::generate(&f.env);
     let old_dispute = Address::generate(&f.env);
     let new_dispute = Address::generate(&f.env);
     init_escrow(&f, &admin, &old_dispute);
-    assert_eq!(f.c().dispute_contract(), old_dispute);
 
     f.c().set_dispute_contract(&new_dispute);
+
+    let data = event_data(&f.env, "dispute_contract_proposed");
+    let proposed: Address = field(&f.env, &data, "new_contract");
+    let effective_at: u64 = field(&f.env, &data, "effective_at");
+    assert_eq!(proposed, new_dispute);
+    assert_eq!(effective_at, 1_000 + DISPUTE_CONTRACT_TIMELOCK_SECONDS);
+
+    assert_eq!(f.c().dispute_contract(), old_dispute, "not rotated yet");
+    let pending = f.c().pending_dispute_contract().unwrap();
+    assert_eq!(pending.new_contract, new_dispute);
+    assert_eq!(pending.effective_at, effective_at);
+
+    let res = f.c().try_apply_dispute_contract();
+    assert!(matches!(
+        res,
+        Err(Ok(EscrowError::DisputeContractTimelockActive))
+    ));
+    assert_eq!(f.c().dispute_contract(), old_dispute);
+}
+
+#[test]
+fn apply_dispute_contract_rotates_and_emits_event_after_timelock() {
+    let f = fixture();
+    let admin = Address::generate(&f.env);
+    let old_dispute = Address::generate(&f.env);
+    let new_dispute = Address::generate(&f.env);
+    init_escrow(&f, &admin, &old_dispute);
+    f.c().set_dispute_contract(&new_dispute);
+
+    f.env
+        .ledger()
+        .set_timestamp(1_000 + DISPUTE_CONTRACT_TIMELOCK_SECONDS);
+    f.c().apply_dispute_contract();
 
     // Read the log before any further invocation: the test env exposes the
     // events of recent invocations only, so a later call (the view read
@@ -1179,6 +1214,68 @@ fn set_dispute_contract_rotates_and_emits_event() {
         new_dispute,
         "view reflects rotation"
     );
+    assert!(f.c().pending_dispute_contract().is_none());
+}
+
+#[test]
+fn apply_dispute_contract_without_proposal_is_rejected() {
+    let f = fixture();
+    let admin = Address::generate(&f.env);
+    init_escrow(&f, &admin, &Address::generate(&f.env));
+    let res = f.c().try_apply_dispute_contract();
+    assert!(matches!(
+        res,
+        Err(Ok(EscrowError::NoPendingDisputeContract))
+    ));
+}
+
+#[test]
+fn cancel_dispute_contract_change_clears_pending_proposal() {
+    let f = fixture();
+    let admin = Address::generate(&f.env);
+    let old_dispute = Address::generate(&f.env);
+    let new_dispute = Address::generate(&f.env);
+    init_escrow(&f, &admin, &old_dispute);
+    f.c().set_dispute_contract(&new_dispute);
+
+    f.c().cancel_dispute_contract_change();
+    let data = event_data(&f.env, "dispute_contract_proposal_cancelled");
+    let cancelled: Address = field(&f.env, &data, "cancelled_contract");
+    assert_eq!(cancelled, new_dispute);
+
+    assert!(f.c().pending_dispute_contract().is_none());
+    f.env
+        .ledger()
+        .set_timestamp(1_000 + DISPUTE_CONTRACT_TIMELOCK_SECONDS);
+    let res = f.c().try_apply_dispute_contract();
+    assert!(matches!(
+        res,
+        Err(Ok(EscrowError::NoPendingDisputeContract))
+    ));
+    assert_eq!(f.c().dispute_contract(), old_dispute);
+
+    let res = f.c().try_cancel_dispute_contract_change();
+    assert!(matches!(
+        res,
+        Err(Ok(EscrowError::NoPendingDisputeContract))
+    ));
+}
+
+#[test]
+fn re_proposing_replaces_pending_and_restarts_timelock() {
+    let f = fixture();
+    let admin = Address::generate(&f.env);
+    init_escrow(&f, &admin, &Address::generate(&f.env));
+    let first = Address::generate(&f.env);
+    let second = Address::generate(&f.env);
+    f.c().set_dispute_contract(&first);
+
+    f.env.ledger().set_timestamp(2_000);
+    f.c().set_dispute_contract(&second);
+
+    let pending = f.c().pending_dispute_contract().unwrap();
+    assert_eq!(pending.new_contract, second);
+    assert_eq!(pending.effective_at, 2_000 + DISPUTE_CONTRACT_TIMELOCK_SECONDS);
 }
 
 #[test]

@@ -86,6 +86,10 @@ pub enum EscrowError {
     InvalidDisputeTimeout = 18,
     /// The contract is paused.
     Paused = 19,
+    /// There is no pending dispute-contract rotation to apply or cancel.
+    NoPendingDisputeContract = 20,
+    /// The dispute-contract rotation timelock has not elapsed yet.
+    DisputeContractTimelockActive = 21,
 }
 
 // ---------------------------------------------------------------------------

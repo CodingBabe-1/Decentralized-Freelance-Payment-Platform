@@ -73,6 +73,8 @@ Source: `contracts/interface/src/lib.rs`
 | `#17` | `TooManyMilestones` | More than 20 milestones submitted for a single escrow. | Consolidate deliverables into 20 or fewer milestones (`MAX_MILESTONES = 20`). |
 | `#18` | `InvalidDisputeTimeout` | Configured dispute timeout is zero. | Timeout must be positive (defaults to 7 days = 604,800 seconds). |
 | `#19` | `Paused` | Escrow contract operations are temporarily paused by admin. | Await unpause by the platform administrator. |
+| `#20` | `NoPendingDisputeContract` | `apply_dispute_contract` or `cancel_dispute_contract_change` called with no pending rotation. | Call `set_dispute_contract` first to propose a new dispute contract. |
+| `#21` | `DisputeContractTimelockActive` | `apply_dispute_contract` called before the 2-day timelock elapsed. | Wait until the proposal's `effective_at` timestamp (see `pending_dispute_contract`). |
 
 ---
 
