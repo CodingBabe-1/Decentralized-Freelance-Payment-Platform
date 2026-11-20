@@ -20,7 +20,7 @@ use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
     xdr::{self, Limits, ReadXdr},
-    Address, Env, Map, Symbol, TryFromVal, Val, Vec,
+    Address, BytesN, Env, Map, Symbol, TryFromVal, Val, Vec,
 };
 
 // ---------------------------------------------------------------------------
@@ -137,6 +137,22 @@ fn event_topic1<T: TryFromVal<Env, Val>>(env: &Env, name: &str) -> T {
         }
     }
     panic!("event {name:?} not found");
+}
+
+/// True if the event log contains an event whose first topic matches `name`.
+/// Mirrors [`event_data`] but reports absence instead of panicking.
+fn event_exists(env: &Env, name: &str) -> bool {
+    for e in env.events().all().events() {
+        let xdr::ContractEventBody::V0(body) = &e.body;
+        let Some(topic0) = body.topics.first() else {
+            continue;
+        };
+        let topic_val = Val::try_from_val(env, topic0).unwrap();
+        if Symbol::try_from_val(env, &topic_val).unwrap() == Symbol::new(env, name) {
+            return true;
+        }
+    }
+    false
 }
 
 // ---------------------------------------------------------------------------
@@ -413,6 +429,60 @@ fn update_milestones_rejects_too_many_milestones() {
         .c()
         .try_update_milestones(&id, &milestones(&f.env, &amounts));
     assert!(matches!(res, Err(Ok(EscrowError::TooManyMilestones))));
+}
+
+#[test]
+fn update_milestones_at_expiry_is_rejected() {
+    let f = fixture();
+    let id = f.c().create(
+        &f.client,
+        &f.freelancer,
+        &f.token,
+        &milestones(&f.env, &[1_000]),
+        &2_000,
+    );
+    // Exactly at the expiry timestamp — the same `>=` boundary that `fund`
+    // enforces — the update must be refused.
+    f.env.ledger().set_timestamp(2_000);
+
+    let res = f
+        .c()
+        .try_update_milestones(&id, &milestones(&f.env, &[400, 600]));
+
+    assert!(matches!(res, Err(Ok(EscrowError::InvalidExpiry))));
+    // Nothing was written and no event was published.
+    let data = f.c().get(&id);
+    assert_eq!(data.status, EscrowStatus::Created);
+    assert_eq!(data.total_amount, 1_000);
+    assert_eq!(data.milestones.len(), 1);
+    assert!(!event_exists(&f.env, "milestones_updated"));
+}
+
+#[test]
+fn update_milestones_after_expiry_is_rejected() {
+    let f = fixture();
+    let id = f.c().create(
+        &f.client,
+        &f.freelancer,
+        &f.token,
+        &milestones(&f.env, &[300, 700]),
+        &2_000,
+    );
+    // Past the stored expiry timestamp.
+    f.env.ledger().set_timestamp(2_500);
+
+    let res = f
+        .c()
+        .try_update_milestones(&id, &milestones(&f.env, &[100, 200, 300]));
+
+    assert!(matches!(res, Err(Ok(EscrowError::InvalidExpiry))));
+    // The original breakdown is untouched and no event was published.
+    let data = f.c().get(&id);
+    assert_eq!(data.status, EscrowStatus::Created);
+    assert_eq!(data.total_amount, 1_000);
+    assert_eq!(data.milestones.len(), 2);
+    assert_eq!(data.milestones.get(0).unwrap().amount, 300);
+    assert!(!event_exists(&f.env, "milestones_updated"));
 }
 
 // ---------------------------------------------------------------------------
@@ -1185,6 +1255,24 @@ fn pause_requires_admin_authorization() {
 }
 
 #[test]
+fn set_code_before_init_is_rejected() {
+    let f = fixture();
+    let hash = BytesN::from_array(&f.env, &[7u8; 32]);
+    let res = f.c().try_set_code(&hash);
+    assert!(matches!(res, Err(Ok(EscrowError::NotInitialized))));
+}
+
+#[test]
+#[should_panic]
+fn set_code_requires_admin_authorization() {
+    let f = fixture();
+    let admin = Address::generate(&f.env);
+    f.c().init(&admin, &Address::generate(&f.env));
+    f.env.set_auths(&[]);
+    f.c().set_code(&BytesN::from_array(&f.env, &[7u8; 32]));
+}
+
+#[test]
 fn get_unknown_escrow_is_rejected() {
     let f = fixture();
     let res = f.c().try_get(&999);
@@ -1280,7 +1368,7 @@ fn cancel_dispute_contract_change_clears_pending_proposal() {
     f.c().set_dispute_contract(&new_dispute);
 
     f.c().cancel_dispute_contract_change();
-    let data = event_data(&f.env, "dispute_proposal_cancelled");
+    let data = event_data(&f.env, "dispute_contract_cancelled");
     let cancelled: Address = field(&f.env, &data, "cancelled_contract");
     assert_eq!(cancelled, new_dispute);
 

@@ -69,8 +69,13 @@ negative share, paused) does not change the status.
   an arbitrator unless explicitly included in the panel.
 - **Panel changes invalidate old approvals.** Votes are keyed by panel version,
   so removing and later re-adding an arbitrator cannot revive an old vote.
-- **Configuration is admin-controlled.** `dispute.set_panel` replaces members
-  and the threshold; `dispute.set_threshold` changes only the threshold.
+  `set_panel` and `remove_arbitrator` bump the version; `add_arbitrator` does not.
+- **Configuration is admin-controlled, with no member signatures.**
+  `dispute.add_arbitrator` / `dispute.remove_arbitrator` change one seat at a
+  time and `dispute.set_panel` replaces members and the threshold, all on the
+  admin's signature alone, so a member who lost their keys can still be replaced.
+  `remove_arbitrator` refuses to shrink the panel below the threshold (lower it
+  first). `dispute.set_threshold` changes only the threshold.
   `escrow.set_dispute_timeout` changes the positive timeout for future disputes;
   already-open disputes keep their recorded deadlines.
 - **Timelock is a genuine escape hatch.** `reclaim_after_dispute_timeout` only
