@@ -41,7 +41,7 @@ import {
   server,
   type MilestoneInput,
 } from "../lib/stellar";
-import { asReadError, friendlyError, parseContractErrorCode } from "../lib/errors";
+import { ContractCallError, asReadError, friendlyError, parseContractErrorCode } from "../lib/errors";
 import { assetForContractId, formatAmount } from "../lib/assets";
 import { useToasts, type ToastMeta } from "./toast-context";
 import { useWallet } from "./wallet-context";
@@ -164,7 +164,11 @@ export function useEscrow() {
         if (!pk) throw new Error("Wallet not connected");
         return await fn(pk);
       } catch (e) {
-        setError(friendlyError(e));
+        // openDispute can fail in either escrow or dispute; preserve the actual source.
+        const contract = e instanceof ContractCallError
+          ? e.contract
+          : kind === "rate" ? "reputation" : "escrow";
+        setError(friendlyError(e, contract));
         setLastFailure({
           kind,
           code: parseContractErrorCode(e instanceof Error ? e.message : String(e)),
@@ -272,8 +276,11 @@ export function useEscrow() {
         // The return value does not survive submission, so use the simulated one.
         return { hash: confirmedHash, result: built.result };
       } catch (e) {
-        updateToast(toastId, "failed", friendlyError(e), undefined, undefined, meta);
-        throw e;
+        const contract = contractId === CONTRACT_ADDRESSES.reputation
+          ? "reputation"
+          : contractId === CONTRACT_ADDRESSES.dispute ? "dispute" : "escrow";
+        updateToast(toastId, "failed", friendlyError(e, contract), undefined, undefined, meta);
+        throw new ContractCallError(e, contract);
       }
     },
     [sign, startToast, updateToast],
