@@ -18,7 +18,7 @@ let server: Server;
 
 beforeAll(async () => {
   const { createApp } = await import("../app");
-  const app = createApp();
+  const app = await createApp();
   await new Promise<void>((resolve) => {
     server = app.listen(0, "127.0.0.1", resolve);
   });
@@ -137,9 +137,12 @@ describe("OpenAPI document", () => {
   it("is not mounted in production", async () => {
     vi.resetModules();
     vi.stubEnv("NODE_ENV", "production");
+    // Production refuses to start with an empty CORS allowlist; supply one so
+    // this test observes the docs gate rather than config validation.
+    vi.stubEnv("CORS_ORIGIN", "https://app.example.com");
 
-    const { createApp } = (await import("../app")) as { createApp: () => Express };
-    const app = createApp();
+    const { createApp } = (await import("../app")) as { createApp: () => Promise<Express> };
+    const app = await createApp();
     const prodServer = await new Promise<Server>((resolve) => {
       const s = app.listen(0, "127.0.0.1", () => resolve(s));
     });

@@ -38,6 +38,7 @@ import {
   buildCreateSchema,
   recordMilestonesSchema,
   releaseSchema,
+  releasePartialSchema,
   syncSchema as escrowSyncSchema,
   updateMilestonesSchema,
   milestonesBatchSchema,
@@ -333,18 +334,36 @@ registry.registerPath({
     200: json(
       z.object({
         exportedAt: z.string().datetime(),
-        profile: z.record(z.unknown()),
-        jobs: z.record(z.unknown()),
+        profile: z.record(z.string(), z.unknown()),
+        jobs: z.record(z.string(), z.unknown()),
         proposals: z.array(z.unknown()),
         messages: z.array(z.unknown()),
         deliverables: z.array(z.unknown()),
-        ratings: z.record(z.unknown()),
+        ratings: z.record(z.string(), z.unknown()),
         savedJobs: z.array(z.unknown()),
         notifications: z.array(z.unknown()),
       }),
       "The user's personal data export archive",
     ),
     401: errors[401],
+    404: errors[404],
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/users/me/verify-email",
+  tags: ["Users"],
+  summary: "Verify ownership of an email address",
+  description:
+    "Consumes the single-use token sent by email and records the address on the authenticated user.",
+  security: auth,
+  request: { query: z.object({ token: z.string() }) },
+  responses: {
+    200: json(z.object({ message: z.string(), user: publicUser }), "Email verified"),
+    400: errors[400],
+    401: errors[401],
+    403: errors[403],
     404: errors[404],
   },
 });
@@ -807,6 +826,24 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
+  path: "/api/escrow/build/release-partial",
+  tags: ["Escrow"],
+  summary: "Build escrow.release_partial",
+  description:
+    "The client releases part of a milestone; `amount` is in whole asset units and is converted to base units.",
+  security: auth,
+  request: { body: { content: { "application/json": { schema: releasePartialSchema } } } },
+  responses: {
+    200: json(unsignedTransaction, "Unsigned transaction"),
+    400: errors[400],
+    401: errors[401],
+    403: errors[403],
+    404: errors[404],
+  },
+});
+
+registry.registerPath({
+  method: "post",
   path: "/api/escrow/build/reclaim",
   tags: ["Escrow"],
   summary: "Build escrow.reclaim_expired",
@@ -846,7 +883,7 @@ registry.registerPath({
   request: { body: { content: { "application/json": { schema: milestonesBatchSchema } } } },
   responses: {
     200: json(
-      z.object({ xdr: z.string(), milestones: z.array(z.record(z.unknown())) }),
+      z.object({ xdr: z.string(), milestones: z.array(z.record(z.string(), z.unknown())) }),
       "Unsigned transaction with resulting milestones",
     ),
     400: errors[400],
@@ -890,7 +927,7 @@ registry.registerPath({
   request: { params: z.object({ escrowId: z.string() }) },
   responses: {
     200: {
-      ...json(z.record(z.unknown()), "Escrow receipt"),
+      ...json(z.record(z.string(), z.unknown()), "Escrow receipt"),
       headers: {
         ETag: { schema: { type: "string" }, description: "Entity tag for caching" },
         "Cache-Control": { schema: { type: "string" }, description: "Cache control directives" },

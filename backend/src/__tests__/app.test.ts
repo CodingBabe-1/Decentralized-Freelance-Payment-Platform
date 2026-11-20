@@ -35,7 +35,7 @@ describe("GET /health", () => {
 
     let server!: Server;
     const { createApp } = await import("../app");
-    const app = createApp();
+    const app = await createApp();
     await new Promise<void>((resolve) => {
       server = app.listen(0, "127.0.0.1", resolve);
     });
@@ -61,7 +61,7 @@ describe("GET /health", () => {
     
     let server!: Server;
     const { createApp } = await import("../app");
-    const app = createApp();
+    const app = await createApp();
     await new Promise<void>((resolve) => {
       server = app.listen(0, "127.0.0.1", resolve);
     });
@@ -91,7 +91,7 @@ describe("GET /health", () => {
 
     let server!: Server;
     const { createApp } = await import("../app");
-    const app = createApp();
+    const app = await createApp();
     await new Promise<void>((resolve) => {
       server = app.listen(0, "127.0.0.1", resolve);
     });
@@ -122,7 +122,7 @@ describe("GET /ready", () => {
 
     let server!: Server;
     const { createApp } = await import("../app");
-    const app = createApp();
+    const app = await createApp();
     await new Promise<void>((resolve) => {
       server = app.listen(0, "127.0.0.1", resolve);
     });
@@ -148,7 +148,7 @@ describe("GET /ready", () => {
     
     let server!: Server;
     const { createApp } = await import("../app");
-    const app = createApp();
+    const app = await createApp();
     await new Promise<void>((resolve) => {
       server = app.listen(0, "127.0.0.1", resolve);
     });
@@ -352,7 +352,7 @@ describe("HTTP cache headers (issue #294)", () => {
   it("serves /api/docs/openapi.json with ETag and Cache-Control, and returns 304 on matching If-None-Match", async () => {
     let server!: Server;
     const { createApp } = await import("../app");
-    const app = createApp();
+    const app = await createApp();
     await new Promise<void>((resolve) => {
       server = app.listen(0, "127.0.0.1", resolve);
     });
@@ -417,7 +417,7 @@ describe("HTTP cache headers (issue #294)", () => {
 
     let server!: Server;
     const { createApp } = await import("../app");
-    const app = createApp();
+    const app = await createApp();
     await new Promise<void>((resolve) => {
       server = app.listen(0, "127.0.0.1", resolve);
     });

@@ -39,8 +39,9 @@ vi.mock("../db", () => ({ prisma: { authNonce: h.authNonce } }));
 /** Start a fresh app (and therefore fresh limiter stores) for one test. */
 async function withApp<T>(fn: (baseUrl: string) => Promise<T>): Promise<T> {
   const { createApp } = await import("../app");
+  const app = await createApp();
   const server: Server = await new Promise((resolve) => {
-    const s = createApp().listen(0, "127.0.0.1", () => resolve(s));
+    const s = app.listen(0, "127.0.0.1", () => resolve(s));
   });
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("no port assigned");

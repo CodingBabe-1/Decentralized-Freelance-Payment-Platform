@@ -21,7 +21,7 @@ describe("OpenTelemetry Distributed Tracing (Issue #307)", () => {
 
   describe("HTTP Request Tracing & Header Propagation", () => {
     it("propagates X-Trace-Id header on HTTP responses", async () => {
-      const app = createApp();
+      const app = await createApp();
       const server: Server = await new Promise((resolve) => {
         const s = app.listen(0, "127.0.0.1", () => resolve(s));
       });
@@ -43,7 +43,7 @@ describe("OpenTelemetry Distributed Tracing (Issue #307)", () => {
     });
 
     it("generates unique trace IDs across distinct requests", async () => {
-      const app = createApp();
+      const app = await createApp();
       const server: Server = await new Promise((resolve) => {
         const s = app.listen(0, "127.0.0.1", () => resolve(s));
       });
