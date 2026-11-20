@@ -270,8 +270,8 @@ git commit --no-verify -m "wip: checkpoint"
 
 ```bash
 cd contracts && cargo fmt --all && cargo clippy --all-targets -- -D warnings && cargo test
-cd ../frontend && npm run lint && npx tsc --noEmit && npm test && npm run build
-cd ../backend && npx prisma generate && npx tsc --noEmit && npm test
+cd ../frontend && npm run lint && npx tsc --noEmit && npm run test:coverage && npm run build
+cd ../backend && npx prisma generate && npx tsc --noEmit && npm run test:coverage
 ```
 
 That is exactly what CI runs. The test steps are not optional: the frontend
@@ -317,15 +317,48 @@ npx prisma migrate diff --from-url "$DATABASE_URL" \
   `docs/short-description`.
 - Small, focused commits with imperative messages
   (`feat(escrow): reject zero-amount milestones`).
-- Open a PR against `integration/staging` (the integration branch that is
-  promoted to `main`); fill in the PR template and link the issue.
+- Open a PR against `main`; fill in the PR template and link the issue.
 - CI must be green before review.
+
+### Pull request titles
+
+`.github/workflows/pr-lint.yml` validates every PR title against
+[Conventional Commits](https://www.conventionalcommits.org/). A title that does
+not parse fails the `PR title` check, so the history stays consistent for
+release notes and changelog tooling.
+
+Format: `<type>(<scope>): <subject>` — the scope is optional.
+
+| Type | Use for |
+|------|---------|
+| `feat` | A user-visible feature |
+| `fix` | A bug fix |
+| `docs` | Documentation only |
+| `style` | Formatting; no behaviour change |
+| `refactor` | Code change that neither fixes a bug nor adds a feature |
+| `perf` | A performance improvement |
+| `test` | Adding or fixing tests only |
+| `build` | Build system or dependencies |
+| `ci` | CI configuration and scripts |
+| `chore` | Everything else (release housekeeping, tooling) |
+
+The subject must start lowercase and must not end with a period.
+
+```text
+feat(escrow): allow partial milestone release
+fix(backend): reject expired JWTs
+ci: pin workflow actions to commit SHAs
+```
+
+Dependabot PRs are exempt: their titles are generated and already conventional.
+The workflow runs on `pull_request_target`, so it evaluates the base repository's
+pinned copy of the action and never checks out or executes PR code.
 
 ### CI workflows
 
-`.github/workflows/ci.yml` runs with the repository's `GITHUB_TOKEN` on every
-push to `main` and on every PR, so anything added to it follows two rules.
-`backend/src/__tests__/ciWorkflows.test.ts` enforces both.
+The workflows in `.github/workflows/` run with the repository's `GITHUB_TOKEN`
+on every push to `main` and on every PR, so anything added to them follows two
+rules. `backend/src/__tests__/ciWorkflows.test.ts` enforces both.
 
 - **Pin every action to a full 40-character commit SHA**, with the version in a
   trailing comment (`uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0`).
@@ -371,23 +404,31 @@ For contract error codes, simulation failures, and wallet connection issues, ref
 
 ## Dependency security
 
-Three lockfiles are committed (`backend/package-lock.json`,
-`frontend/package-lock.json`, `contracts/Cargo.lock`), so a version only moves
-when something bumps it. Version updates are **manual** — Dependabot is
-intentionally not configured (`.github/dependabot.yml` was removed) — so a bump
-happens when someone runs `npm audit fix` / `cargo update` or lands a PR that
-changes a manifest. One mechanism guards that:
+Four lockfiles are committed (`package-lock.json` at the root for the Husky and
+lint-staged tooling, `backend/package-lock.json`, `frontend/package-lock.json`,
+`contracts/Cargo.lock`), so a version only moves when something bumps it. One
+workflow keeps those bumps flowing and one gates them:
 
-- **The `Dependencies – vulnerability scan` job** runs
-  `npm audit --audit-level=high --omit=dev` for both packages and
-  `cargo audit` for the contracts on every push and PR.
+- **Dependabot** (`.github/dependabot.yml`) opens weekly grouped PRs for the two
+  npm trees, the root tooling, the Rust workspace, and the Action pins. Security
+  updates arrive as their own PR as soon as the advisory is published;
+  minor/patch bumps are grouped so routine upgrades do not flood the queue.
+- **The `Dependencies – vulnerability scan` job is a blocking gate.** It runs
+  `npm audit --audit-level=high --omit=dev` for both npm packages and
+  `cargo audit` for the contracts on every push and PR. `continue-on-error` was
+  removed deliberately (issue #287), after the lockfiles were remediated; a new
+  high/critical advisory now fails CI instead of being reported and ignored.
 
-**The scan is advisory today, not blocking.** Both lockfiles carry known
-high/critical advisories that need a dependency bump, not a CI change, so the
-steps use `continue-on-error: true`: the report is visible in the run (and in the
-check's annotations) without failing every unrelated PR. Make it blocking —
-delete `continue-on-error` — once `npm audit --audit-level=high --omit=dev` and
-`cargo audit` are both clean.
+Two findings are documented rather than silenced, each with a way out:
+
+- `contracts/.cargo/audit.toml` ignores RUSTSEC-2026-0387 (timing variability
+  in crypto-bigint 0.5.5, reachable only through soroban-env-host; no patched
+  0.5.x exists). Delete the entry when the workspace moves to soroban-sdk 30,
+  which pulls crypto-bigint 0.7.
+- The backend and frontend manifests force `toml` to 5.0.1 with an npm
+  `overrides` entry. `@stellar/stellar-sdk` 12 still declares `toml@^3.0.0`, and
+  that line carries a prototype-pollution advisory. Drop the override once the
+  SDK's own range allows the fixed version.
 
 `--omit=dev` deliberately audits only what ships. Build/test tooling (vite,
 vitest, eslint, tsx) is not scanned there because it never runs in production;
@@ -396,8 +437,8 @@ tests compile the same crates the wasm build does.
 
 Handling a new advisory:
 
-1. Prefer a bump: `npm audit fix` for a non-breaking fix, or a small PR that
-   changes the manifest and the lockfile together.
+1. Merge the Dependabot security PR, or run `npm audit fix` / `cargo update`
+   and commit the manifest and lockfile together.
 2. If the finding is in a production dependency, treat it as a bug rather than
    noise — the backend verifies wallet signatures and holds JWTs, so a parsing or
    network flaw in one of its dependencies is reachable from the internet.

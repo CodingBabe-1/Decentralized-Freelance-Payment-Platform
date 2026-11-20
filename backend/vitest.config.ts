@@ -14,6 +14,13 @@ export default defineConfig({
     include: ["src/**/*.{test,spec}.?(c|m)[jt]s?(x)", "../tests/**/*.{test,spec}.?(c|m)[jt]s?(x)"],
     hookTimeout: 30000,
     testTimeout: 15000,
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "lcov"],
+      reportsDirectory: "./coverage",
+      include: ["src/**/*.ts"],
+      exclude: ["src/**/*.test.ts", "src/**/*.spec.ts", "src/__tests__/**"],
+    },
     env: {
       NODE_ENV: "test",
       DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/test",
