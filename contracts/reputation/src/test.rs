@@ -56,7 +56,9 @@ fn setup() -> Fx {
     // resolve a dispute; they only need a valid address to initialise.
     let dispute = env.register(EscrowContract, ());
     let reputation = env.register(ReputationContract, ());
-    EscrowContractClient::new(&env, &escrow).init(&admin, &dispute);
+    // The escrow's `init` rejects the escrow's own address (or an account) as the
+    // dispute contract, so use a distinct registered contract as the placeholder.
+    EscrowContractClient::new(&env, &escrow).init(&admin, &reputation);
     ReputationContractClient::new(&env, &reputation).init(&admin, &escrow);
 
     Fx {
@@ -204,7 +206,7 @@ fn duplicate_rating_is_rejected() {
 }
 
 #[test]
-fn zero_weight_rating_does_not_consume_the_pair_count() {
+fn zero_weight_rating_is_stored_but_not_counted() {
     let env = Env::default();
     env.mock_all_auths();
     env.ledger().set_timestamp(1_000);
@@ -216,7 +218,9 @@ fn zero_weight_rating_does_not_consume_the_pair_count() {
     MockEscrowClient::new(&env, &escrow).init(&EscrowData {
         client: client.clone(),
         freelancer: freelancer.clone(),
-        token: Address::generate(&env),
+        token: env
+            .register_stellar_asset_contract_v2(Address::generate(&env))
+            .address(),
         total_amount: 0,
         milestones: Vec::new(&env),
         status: EscrowStatus::Completed,
@@ -308,16 +312,32 @@ fn aggregate_weights_ratings_by_escrow_amount() {
 }
 
 #[test]
-fn anti_spam_only_first_rating_per_pair_counts() {
+fn every_escrow_between_the_same_pair_counts() {
     let f = setup();
-    // The same client completes two escrows with the same freelancer.
-    let first = f.completed_with(&f.client, 100);
-    let second = f.completed_with(&f.client, 900);
+    // A small test job, then a much larger one, between the same two parties.
+    let first = f.completed_with(&f.client, 10);
+    let second = f.completed_with(&f.client, 990);
 
     f.rep_client().submit(&f.client, &f.freelancer, &first, &5);
     f.rep_client().submit(&f.client, &f.freelancer, &second, &1);
 
-    // Only the first (rater, ratee) pair counts, so the 900 job is ignored.
+    // Both ratings count: the large job is not discarded by the earlier one.
+    let agg = f.rep_client().get_aggregate(&f.freelancer);
+    assert_eq!(agg.count, 2);
+    assert_eq!(agg.weight, 1_000);
+    // 5*10 + 1*990 = 1_040
+    assert_eq!(agg.total_score, 1_040);
+}
+
+#[test]
+fn a_single_escrow_cannot_count_twice() {
+    let f = setup();
+    let id = f.completed_with(&f.client, 100);
+    f.rep_client().submit(&f.client, &f.freelancer, &id, &5);
+
+    let res = f.rep_client().try_submit(&f.client, &f.freelancer, &id, &1);
+    assert!(matches!(res, Err(Ok(ReputationError::AlreadyRated))));
+
     let agg = f.rep_client().get_aggregate(&f.freelancer);
     assert_eq!(agg.count, 1);
     assert_eq!(agg.weight, 100);
@@ -332,9 +352,10 @@ fn raw_ratings_are_preserved_for_both_escrows() {
     f.rep_client().submit(&f.client, &f.freelancer, &first, &5);
     f.rep_client().submit(&f.client, &f.freelancer, &second, &1);
 
-    // Both raw ratings remain readable even though only one is weighted.
+    // Both raw ratings remain readable, and both are in the aggregate.
     assert_eq!(f.rep_client().get_rating(&f.client, &first).score, 5);
     assert_eq!(f.rep_client().get_rating(&f.client, &second).score, 1);
+    assert_eq!(f.rep_client().get_aggregate(&f.freelancer).count, 2);
 }
 
 #[test]
@@ -375,6 +396,23 @@ fn aggregate_stays_correct_with_many_ratings() {
 enum MockKey {
     Escrow,
     Failing,
+    Decimals,
+}
+
+/// Token stand-in that only reports `decimals()`, so tests can model tokens
+/// with any precision (18-decimal ERC-20-style tokens, 0-decimal tokens, ...).
+#[contract]
+pub struct MockToken;
+
+#[contractimpl]
+impl MockToken {
+    pub fn init(env: Env, decimals: u32) {
+        env.storage().instance().set(&MockKey::Decimals, &decimals);
+    }
+
+    pub fn decimals(env: Env) -> u32 {
+        env.storage().instance().get(&MockKey::Decimals).unwrap()
+    }
 }
 
 /// Minimal escrow stand-in for one `Completed` job. It can be switched to
@@ -392,6 +430,12 @@ impl MockEscrow {
 
     pub fn set_failing(env: Env, failing: bool) {
         env.storage().instance().set(&MockKey::Failing, &failing);
+    }
+
+    pub fn set_token(env: Env, token: Address) {
+        let mut escrow: EscrowData = env.storage().instance().get(&MockKey::Escrow).unwrap();
+        escrow.token = token;
+        env.storage().instance().set(&MockKey::Escrow, &escrow);
     }
 
     pub fn set_total_amount(env: Env, amount: i128) {
@@ -430,7 +474,9 @@ fn get_aggregate_does_not_call_the_escrow() {
     MockEscrowClient::new(&env, &escrow).init(&EscrowData {
         client: client.clone(),
         freelancer: freelancer.clone(),
-        token: Address::generate(&env),
+        token: env
+            .register_stellar_asset_contract_v2(Address::generate(&env))
+            .address(),
         total_amount: 1_000,
         milestones: Vec::new(&env),
         status: EscrowStatus::Completed,
@@ -515,7 +561,9 @@ fn set_escrow_contract_updates_the_trusted_contract() {
     MockEscrowClient::new(&env, &escrow).init(&EscrowData {
         client: client.clone(),
         freelancer: freelancer.clone(),
-        token: Address::generate(&env),
+        token: env
+            .register_stellar_asset_contract_v2(Address::generate(&env))
+            .address(),
         total_amount: 1_000,
         milestones: Vec::new(&env),
         status: EscrowStatus::Completed,
@@ -550,4 +598,124 @@ fn submit_requires_rater_auth() {
     let id = f.completed();
     f.env.set_auths(&[]);
     f.rep_client().submit(&f.client, &f.freelancer, &id, &5);
+}
+
+// ---------------------------------------------------------------------------
+// decimals normalization
+// ---------------------------------------------------------------------------
+
+fn token_with_decimals(env: &Env, decimals: u32) -> Address {
+    let token = env.register(MockToken, ());
+    MockTokenClient::new(env, &token).init(&decimals);
+    token
+}
+
+/// A reputation contract over a mock escrow whose job is paid in `token`.
+fn mock_rep<'a>(
+    env: &'a Env,
+    token: &Address,
+    total_amount: i128,
+) -> (
+    ReputationContractClient<'a>,
+    MockEscrowClient<'a>,
+    Address,
+    Address,
+) {
+    env.mock_all_auths();
+    env.ledger().set_timestamp(1_000);
+    let client = Address::generate(env);
+    let freelancer = Address::generate(env);
+    let admin = Address::generate(env);
+
+    let escrow = env.register(MockEscrow, ());
+    let mock = MockEscrowClient::new(env, &escrow);
+    mock.init(&EscrowData {
+        client: client.clone(),
+        freelancer: freelancer.clone(),
+        token: token.clone(),
+        total_amount,
+        milestones: Vec::new(env),
+        status: EscrowStatus::Completed,
+        created_at: 0,
+        expiry: 10_000,
+    });
+
+    let reputation = env.register(ReputationContract, ());
+    let rep = ReputationContractClient::new(env, &reputation);
+    rep.init(&admin, &escrow);
+    (rep, mock, client, freelancer)
+}
+
+#[test]
+fn eighteen_decimal_job_does_not_overflow() {
+    let env = Env::default();
+    // 100 tokens of an 18-decimal asset = 10^20 base units, above u64::MAX.
+    let token = token_with_decimals(&env, 18);
+    let (rep, _, client, freelancer) = mock_rep(&env, &token, 100 * 10i128.pow(18));
+
+    rep.submit(&client, &freelancer, &0, &5);
+
+    let agg = rep.get_aggregate(&freelancer);
+    assert_eq!(agg.count, 1);
+    // 100 whole tokens at the 7-decimal weight scale.
+    assert_eq!(agg.weight, 100 * 10u64.pow(7));
+    assert_eq!(agg.total_score, 5 * 100 * 10u64.pow(7));
+}
+
+#[test]
+fn same_whole_amount_weighs_the_same_across_token_decimals() {
+    let env = Env::default();
+    let t18 = token_with_decimals(&env, 18);
+    let t7 = token_with_decimals(&env, 7);
+    let t0 = token_with_decimals(&env, 0);
+    let (rep, mock, client, freelancer) = mock_rep(&env, &t18, 10 * 10i128.pow(18));
+
+    // 10 tokens at 18 decimals.
+    rep.submit(&client, &freelancer, &0, &5);
+    let w18 = rep.get_aggregate(&freelancer).weight;
+
+    // 10 tokens at 7 decimals (e.g. USDC).
+    mock.set_token(&t7);
+    mock.set_total_amount(&(10 * 10i128.pow(7)));
+    rep.submit(&client, &freelancer, &1, &5);
+    let w7 = rep.get_aggregate(&freelancer).weight - w18;
+
+    // 10 tokens at 0 decimals.
+    mock.set_token(&t0);
+    mock.set_total_amount(&10);
+    rep.submit(&client, &freelancer, &2, &5);
+    let w0 = rep.get_aggregate(&freelancer).weight - w18 - w7;
+
+    assert_eq!(w18, 10 * 10u64.pow(7));
+    assert_eq!(w7, w18);
+    assert_eq!(w0, w18);
+    assert_eq!(rep.get_aggregate(&freelancer).count, 3);
+}
+
+#[test]
+fn sub_scale_dust_on_a_high_decimal_token_is_stored_but_not_counted() {
+    let env = Env::default();
+    let token = token_with_decimals(&env, 18);
+    // 10^10 base units = 10^-8 tokens, below the 10^-7 weight resolution.
+    let (rep, _, client, freelancer) = mock_rep(&env, &token, 10i128.pow(10));
+
+    rep.submit(&client, &freelancer, &0, &5);
+    assert_eq!(rep.get_rating(&client, &0).score, 5);
+    let agg = rep.get_aggregate(&freelancer);
+    assert_eq!(agg.count, 0);
+    assert_eq!(agg.weight, 0);
+}
+
+#[test]
+fn token_without_decimals_is_rejected() {
+    let env = Env::default();
+    // Not a deployed contract, so `decimals()` cannot be read.
+    let token = Address::generate(&env);
+    let (rep, _, client, freelancer) = mock_rep(&env, &token, 1_000);
+
+    let res = rep.try_submit(&client, &freelancer, &0, &5);
+    assert!(matches!(
+        res,
+        Err(Ok(ReputationError::TokenDecimalsUnavailable))
+    ));
 }

@@ -4,8 +4,10 @@
  * The off-chain mirror of `reputation.get_aggregate` (issue #34).
  *
  * The contract maintains a **weighted** aggregate, not a plain mean: each
- * counted rating is weighted by its escrow's `total_amount`, and only the first
- * rating a given rater gives a given ratee counts (anti-spam). See
+ * counted rating is weighted by its escrow's `total_amount` normalized to 7
+ * decimals (`WEIGHT_DECIMALS`), and each escrow
+ * counts once per rater (the `RatingCounted(ratee, rater, escrow_id)` marker),
+ * so every `Rating` row counts. See
  * `docs/REPUTATION.md` and `contracts/reputation/src/lib.rs`.
  *
  * `GET /api/reputation/:address` has to answer with the same numbers, or the
@@ -14,18 +16,22 @@
  * it can be unit-tested against the contract's rule.
  */
 
-import { getAsset, toBaseUnits } from "./assets";
+import { toBaseUnits } from "./assets";
+
+/**
+ * Decimal scale every rating weight is normalized to; mirrors `WEIGHT_DECIMALS`
+ * in `contracts/reputation/src/lib.rs`. A weight is whole tokens × 10^7
+ * whatever the token's own precision, so 7-decimal assets (USDC, XLM) and
+ * 18-decimal ones weigh the same for the same whole amount.
+ */
+export const WEIGHT_DECIMALS = 7;
 
 /** The fields of a rating this calculation needs. */
 export interface WeightedRating {
   score: number;
-  /** The rater's user id; the anti-spam key is `(rater, ratee)`. */
-  raterId: string;
   job: {
     /** `Job.totalAmount`, a Prisma Decimal in whole units of `asset`. */
     totalAmount: { toString(): string } | string | number;
-    /** Asset symbol the job pays in (see `lib/assets.ts`). */
-    asset: string;
   };
 }
 
@@ -40,15 +46,16 @@ export interface WeightedAggregate {
 }
 
 /**
- * The weight of one rating: its escrow's `total_amount` in the asset's base
- * units. An asset the registry does not know has no defensible decimals, so its
- * weight is zero — the same treatment the contract gives a zero-amount escrow
- * (the rating is stored, but does not move the aggregate).
+ * The weight of one rating: its job's whole-unit amount scaled to
+ * `WEIGHT_DECIMALS`, truncating anything finer. This equals the contract's
+ * `normalized_weight` (token base units divided or multiplied by the distance
+ * from 7 decimals) without needing the asset's own decimals. A zero or
+ * unparseable amount weighs zero — the rating is stored but does not move the
+ * aggregate, like a zero-amount escrow on chain.
  */
 function ratingWeight(rating: WeightedRating): bigint {
   try {
-    const { decimals } = getAsset(rating.job.asset);
-    return toBaseUnits(rating.job.totalAmount.toString(), decimals);
+    return toBaseUnits(rating.job.totalAmount.toString(), WEIGHT_DECIMALS);
   } catch {
     return 0n;
   }
@@ -57,27 +64,19 @@ function ratingWeight(rating: WeightedRating): bigint {
 /**
  * Fold raw ratings into the contract's weighted aggregate.
  *
- * `ratings` must be ordered oldest first: "first rating from a given rater" is
- * the one that counted on chain. The route orders by `createdAt, id` so the
- * result is deterministic even when two rows share a timestamp.
- *
- * The replicate of the contract's rule matters in two places:
- * - the `(rater, ratee)` marker is set even when the weight is zero, so a later
- *   rating from that rater does **not** count either;
- * - the count is the number of counted ratings, not the number of rows.
+ * `Rating` rows are unique per `(rater, job)`, the same granularity as the
+ * contract's `(ratee, rater, escrow_id)` marker, so no extra de-duplication is
+ * needed: every row counts, except a zero-weight one, which the contract stores
+ * but does not fold in. The count is the number of counted ratings, not rows.
  */
 export function computeWeightedAggregate(
   ratings: readonly WeightedRating[],
 ): WeightedAggregate {
-  const ratersCounted = new Set<string>();
   let totalScore = 0n;
   let weight = 0n;
   let count = 0;
 
   for (const rating of ratings) {
-    if (ratersCounted.has(rating.raterId)) continue;
-    ratersCounted.add(rating.raterId);
-
     const ratingWeightBaseUnits = ratingWeight(rating);
     if (ratingWeightBaseUnits <= 0n) continue;
 
