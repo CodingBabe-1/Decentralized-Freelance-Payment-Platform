@@ -234,3 +234,12 @@ If an arbitrator's private key is leaked:
 1. Initiate emergency multisig transaction to invoke `dispute.remove_arbitrator(compromised)` (lower the threshold with `dispute.set_threshold` first if the panel would fall below it), then `dispute.add_arbitrator(replacement)`. Only the admin signs; the other arbitrators do not need to. `dispute.set_panel(new_arbitrators, new_threshold)` replaces the whole panel in one call.
 2. Update `ARBITRATOR_ADDRESSES` on backend services.
 3. Any open disputes will require approvals from the newly authorized panel.
+
+### 4. Critical Contract Bug / Required Bytecode Upgrade
+Escrow and Dispute expose an admin-only `set_code(new_wasm_hash)` that swaps the
+contract bytecode in place. The contract address and all storage are preserved,
+so active escrows and held funds are unaffected.
+1. Pause the contract: `stellar contract invoke --id "$ESCROW_ID" --network mainnet -- pause`.
+2. Build and install the fixed Wasm: `NEW_HASH=$(stellar contract install --wasm contracts/target/wasm32v1-none/release/escrow.wasm --network mainnet)`.
+3. Invoke `set_code --new_wasm_hash "$NEW_HASH"` via the admin multisig (same for `dispute`).
+4. Verify with a read call (e.g. `get`) and the `code_updated` event, then `unpause`.

@@ -13,7 +13,7 @@ use escrow::{EscrowContract, EscrowContractClient, Milestone};
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
-    Address, Env, Event as _, String, Vec,
+    Address, BytesN, Env, Event as _, String, Vec,
 };
 
 struct Fx {
@@ -804,4 +804,27 @@ fn staged_panel_changes_before_init_are_rejected() {
         client.try_remove_arbitrator(&who),
         Err(Ok(DisputeError::NotInitialized))
     ));
+}
+
+// ---------------------------------------------------------------------------
+// set_code (upgradeability)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn set_code_before_init_is_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let dispute = env.register(DisputeContract, ());
+    let hash = BytesN::from_array(&env, &[7u8; 32]);
+    let res = DisputeContractClient::new(&env, &dispute).try_set_code(&hash);
+    assert!(matches!(res, Err(Ok(DisputeError::NotInitialized))));
+}
+
+#[test]
+#[should_panic]
+fn set_code_requires_admin_auth() {
+    let f = setup();
+    f.env.set_auths(&[]);
+    f.dispute_client()
+        .set_code(&BytesN::from_array(&f.env, &[7u8; 32]));
 }

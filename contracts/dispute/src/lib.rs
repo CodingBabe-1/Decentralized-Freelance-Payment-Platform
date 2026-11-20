@@ -11,6 +11,8 @@
 //! - A panel of arbitrators is set once via `init`; every member must authorize
 //!   `init`, so the role cannot be sniped by a front-runner. Resolutions need
 //!   `threshold`-of-`panel` approvals.
+//! - The admin can upgrade the contract bytecode in place with `set_code`; the
+//!   contract address, disputes and panel are preserved.
 //! - After `init` the panel is managed by the admin alone: `add_arbitrator` and
 //!   `remove_arbitrator` change one seat at a time, and `set_panel` replaces the
 //!   whole panel. None of them need a signature from any panel member, so a
@@ -37,7 +39,8 @@
 
 use interface::{EscrowClient, EscrowData, EscrowStatus};
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, String, Vec,
+    contract, contracterror, contractevent, contractimpl, contracttype, Address, BytesN, Env,
+    String, Vec,
 };
 
 // ---------------------------------------------------------------------------
@@ -164,6 +167,15 @@ pub struct ArbitratorRemoved {
     pub admin: Address,
     pub arbitrator: Address,
     pub panel_size: u32,
+}
+
+/// Admin upgraded the contract bytecode in place (see `docs/EVENTS.md`).
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CodeUpdated {
+    #[topic]
+    pub admin: Address,
+    pub new_wasm_hash: BytesN<32>,
 }
 
 // ---------------------------------------------------------------------------
@@ -384,6 +396,27 @@ impl DisputeContract {
             admin,
             old_threshold,
             new_threshold: threshold,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Upgrade the contract to a new WASM binary. Admin only.
+    ///
+    /// `new_wasm_hash` must be the hash of bytecode already installed on the
+    /// network (`stellar contract install`); the host traps if it is unknown. The
+    /// contract address and all storage (disputes, panel, votes) are kept. The
+    /// new code takes effect from the next invocation, not within this call.
+    pub fn set_code(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), DisputeError> {
+        let admin = Self::admin(&env)?;
+        admin.require_auth();
+        env.deployer()
+            .update_current_contract_wasm(new_wasm_hash.clone());
+        Self::extend_instance(&env);
+
+        CodeUpdated {
+            admin,
+            new_wasm_hash,
         }
         .publish(&env);
         Ok(())

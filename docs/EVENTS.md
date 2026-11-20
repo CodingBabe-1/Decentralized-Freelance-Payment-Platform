@@ -49,6 +49,7 @@ of the state tables keeps a transaction hash.
 | `DisputeContractProposed` | `dispute_contract_proposed` | `admin: Address` | `new_contract: Address`, `effective_at: u64` |
 | `DisputeContractProposalCancelled` | `dispute_contract_proposal_cancelled` | `admin: Address` | `cancelled_contract: Address` |
 | `DisputeContractUpdated` | `dispute_contract_updated` | `admin: Address` | `old_contract: Address`, `new_contract: Address` |
+| `CodeUpdated` | `code_updated` | `admin: Address` | `new_wasm_hash: BytesN<32>` |
 
 > Dispute-contract rotation is a two-step, timelocked flow: `set_dispute_contract`
 > emits `dispute_contract_proposed`; after `effective_at`, `apply_dispute_contract`
@@ -64,6 +65,7 @@ of the state tables keeps a transaction hash.
 | `ThresholdUpdated` | `threshold_updated` | `admin: Address` | `old_threshold: u32`, `new_threshold: u32` |
 | `ArbitratorAdded` | `arbitrator_added` | `admin: Address` | `arbitrator: Address`, `panel_size: u32` |
 | `ArbitratorRemoved` | `arbitrator_removed` | `admin: Address` | `arbitrator: Address`, `panel_size: u32` |
+| `CodeUpdated` | `code_updated` | `admin: Address` | `new_wasm_hash: BytesN<32>` |
 
 > `ThresholdUpdated` is emitted by `set_threshold` only, after the new value is
 > validated and stored. `set_panel` also writes a threshold but emits no event of

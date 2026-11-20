@@ -16,13 +16,17 @@
 //! - `resolve` is callable only by the dispute contract registered in `init`.
 //! - Rotating the dispute contract is two-step and timelocked: `set_dispute_contract`
 //!   proposes, `apply_dispute_contract` applies after the timelock.
+//! - The admin can upgrade the contract bytecode in place with `set_code`; the
+//!   contract address and all storage (escrows, balances held) are preserved.
 //! - Persistent and instance storage entries are TTL-extended on every mutation
 //!   and on reads, so live escrows do not fall out of the ledger.
 //! - Errors are returned as [`EscrowError`]; no `assert!`/`unwrap` in production paths.
 
 #![no_std]
 
-use soroban_sdk::{contract, contractevent, contractimpl, contracttype, token, Address, Env, Vec};
+use soroban_sdk::{
+    contract, contractevent, contractimpl, contracttype, token, Address, BytesN, Env, Vec,
+};
 
 // Shared with the dispute and reputation contracts via the `interface` crate.
 pub use interface::{EscrowData, EscrowError, EscrowStatus, Milestone};
@@ -179,6 +183,15 @@ pub struct DisputeContractProposalCancelled {
     pub cancelled_contract: Address,
 }
 
+/// Admin upgraded the contract bytecode in place (see `docs/EVENTS.md`).
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CodeUpdated {
+    #[topic]
+    pub admin: Address,
+    pub new_wasm_hash: BytesN<32>,
+}
+
 // ---------------------------------------------------------------------------
 // Contract
 // ---------------------------------------------------------------------------
@@ -328,6 +341,35 @@ impl EscrowContract {
         DisputeContractProposalCancelled {
             admin,
             cancelled_contract: pending.new_contract,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Upgrade the contract to a new WASM binary. Admin only.
+    ///
+    /// `new_wasm_hash` must be the hash of bytecode already installed on the
+    /// network (`stellar contract install`); the host traps if it is unknown. The
+    /// contract address, instance and persistent storage are kept, so active
+    /// escrows and the funds they hold survive the upgrade. The new code takes
+    /// effect from the next invocation, not within this call.
+    ///
+    /// The admin should be a multisig account: this entry point controls all
+    /// held funds. Pausing first (`pause`) is advisable for a non-trivial upgrade.
+    pub fn set_code(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), EscrowError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(EscrowError::NotInitialized)?;
+        admin.require_auth();
+        env.deployer()
+            .update_current_contract_wasm(new_wasm_hash.clone());
+        Self::extend_instance(&env);
+
+        CodeUpdated {
+            admin,
+            new_wasm_hash,
         }
         .publish(&env);
         Ok(())
