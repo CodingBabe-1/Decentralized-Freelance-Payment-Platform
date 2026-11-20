@@ -6,8 +6,7 @@
 #![cfg(test)]
 
 use crate::{
-    ArbitratorAdded, ArbitratorRemoved, DisputeContract, DisputeContractClient, DisputeError,
-    DisputeStatus, ThresholdUpdated,
+    DisputeContract, DisputeContractClient, DisputeError, DisputeStatus, ThresholdUpdated,
 };
 use escrow::{EscrowContract, EscrowContractClient, Milestone};
 use soroban_sdk::{

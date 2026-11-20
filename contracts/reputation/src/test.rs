@@ -52,7 +52,9 @@ fn setup() -> Fx {
 
     let escrow = env.register(EscrowContract, ());
     let reputation = env.register(ReputationContract, ());
-    EscrowContractClient::new(&env, &escrow).init(&admin, &escrow);
+    // The escrow's `init` rejects the escrow's own address (or an account) as the
+    // dispute contract, so use a distinct registered contract as the placeholder.
+    EscrowContractClient::new(&env, &escrow).init(&admin, &reputation);
     ReputationContractClient::new(&env, &reputation).init(&admin, &escrow);
 
     Fx {
