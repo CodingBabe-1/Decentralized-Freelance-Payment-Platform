@@ -25,7 +25,8 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractevent, contractimpl, contracttype, token, Address, BytesN, Env, Vec,
+    contract, contractevent, contractimpl, contracttype, token, Address, BytesN,
+    ContractExecutable, Env, Vec,
 };
 
 // Shared with the dispute and reputation contracts via the `interface` crate.
@@ -364,7 +365,7 @@ impl EscrowContract {
             .ok_or(EscrowError::NotInitialized)?;
         admin.require_auth();
         env.deployer()
-            .update_current_contract_wasm(new_wasm_hash.clone());
+            .update_current_contract(ContractExecutable::Wasm(new_wasm_hash.clone()));
         Self::extend_instance(&env);
 
         CodeUpdated {

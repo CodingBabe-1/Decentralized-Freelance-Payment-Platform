@@ -52,7 +52,7 @@ describe("requestLogger", () => {
   it("is not installed on the app under NODE_ENV=test", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const app = createApp();
+    const app = await createApp();
     const server: Server = await new Promise((resolve) => {
       const s = app.listen(0, "127.0.0.1", () => resolve(s));
     });

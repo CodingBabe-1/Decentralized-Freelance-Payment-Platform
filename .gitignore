@@ -26,3 +26,7 @@ frontend/playwright-report/
 
 # Docker
 postgres_data/
+
+# Test coverage
+coverage/
+

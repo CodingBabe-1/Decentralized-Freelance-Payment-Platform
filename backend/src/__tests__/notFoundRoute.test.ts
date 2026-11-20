@@ -20,7 +20,7 @@ let baseUrl: string;
 let server: Server;
 
 beforeAll(async () => {
-  const app = createApp();
+  const app = await createApp();
   await new Promise<void>((resolve) => {
     server = app.listen(0, "127.0.0.1", resolve);
   });

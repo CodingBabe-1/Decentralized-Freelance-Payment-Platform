@@ -335,11 +335,7 @@ impl ReputationContract {
     /// (sub-10^-7 dust truncates, and a job that truncates to zero weight is
     /// stored but not counted); tokens with fewer are scaled up. A non-positive
     /// amount weighs zero without touching the token.
-    fn normalized_weight(
-        env: &Env,
-        token: &Address,
-        amount: i128,
-    ) -> Result<u64, ReputationError> {
+    fn normalized_weight(env: &Env, token: &Address, amount: i128) -> Result<u64, ReputationError> {
         if amount <= 0 {
             return Ok(0);
         }
@@ -361,9 +357,7 @@ impl ReputationContract {
                 .checked_mul(multiplier)
                 .ok_or(ReputationError::Overflow)?
         };
-        normalized
-            .try_into()
-            .map_err(|_| ReputationError::Overflow)
+        normalized.try_into().map_err(|_| ReputationError::Overflow)
     }
 
     fn extend_instance(env: &Env) {

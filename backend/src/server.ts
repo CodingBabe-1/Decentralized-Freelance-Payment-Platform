@@ -25,7 +25,7 @@ async function main() {
     }
   }
 
-  const app = createApp();
+  const app = await createApp();
   // Keep the `listen` handle: closing it is what lets in-flight requests finish
   // instead of being cut off mid-response (issue #26).
   const server = app.listen(config.PORT, () => {

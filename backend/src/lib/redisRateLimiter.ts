@@ -9,18 +9,15 @@
  * enforced globally across all backend replicas.
  */
 
-import { createClient, type RedisClientType } from "redis";
-import type { Store } from "express-rate-limit";
+import { createClient } from "redis";
+import type { ClientRateLimitInfo, Store } from "express-rate-limit";
+
+type RedisClient = ReturnType<typeof createClient>;
 
 interface RedisStoreOptions {
-  client: RedisClientType;
+  client: RedisClient;
   prefix?: string;
   sendUnknownCommands?: boolean;
-}
-
-interface ClientInfo {
-  totalHits: number;
-  resetTime: number;
 }
 
 /**
@@ -28,8 +25,8 @@ interface ClientInfo {
  * Shares rate limit counters across all backend instances in a cluster.
  */
 export class RedisStore implements Store {
-  private client: RedisClientType;
-  private prefix: string;
+  private client: RedisClient;
+  prefix: string;
 
   constructor(options: RedisStoreOptions) {
     this.client = options.client;
@@ -40,7 +37,7 @@ export class RedisStore implements Store {
    * Increment the counter for a given key and return current counts.
    * Called by express-rate-limit on each request to check if the limit is exceeded.
    */
-  async increment(key: string): Promise<ClientInfo> {
+  async increment(key: string): Promise<ClientRateLimitInfo> {
     const redisKey = this.prefix + key;
     const now = Date.now();
 
@@ -49,7 +46,7 @@ export class RedisStore implements Store {
       const hits = await this.client.incr(redisKey);
 
       // Get the TTL (expiry) of the key
-      let ttl = await this.client.pttl(redisKey);
+      let ttl = await this.client.pTTL(redisKey);
 
       // If this is the first hit (hits === 1), set an expiry
       // This ensures old counters don't stick around forever
@@ -71,7 +68,7 @@ export class RedisStore implements Store {
         ttl = 60_000;
       }
 
-      const resetTime = now + ttl;
+      const resetTime = new Date(now + ttl);
 
       return { totalHits: hits, resetTime };
     } catch (err) {
@@ -118,11 +115,11 @@ export class RedisStore implements Store {
   async reset(): Promise<void> {
     try {
       // Use SCAN to iterate over all keys matching the prefix pattern
-      let cursor = "0";
+      let cursor = 0;
       let keysDeleted = 0;
 
       do {
-        const reply = await this.client.scan(parseInt(cursor), {
+        const reply = await this.client.scan(cursor, {
           MATCH: `${this.prefix}*`,
           COUNT: 100,
         });
@@ -134,7 +131,7 @@ export class RedisStore implements Store {
           await this.client.del(keys);
           keysDeleted += keys.length;
         }
-      } while (cursor !== "0");
+      } while (cursor !== 0);
 
       console.log(`[RedisStore] Reset ${keysDeleted} rate limit keys`);
     } catch (err) {
@@ -151,7 +148,7 @@ export class RedisStore implements Store {
 export async function createRedisClient(
   redisUrl: string,
   options?: { socketTimeoutMs?: number; socketReconnectIntervalMs?: number },
-): Promise<{ client: RedisClientType; disconnect: () => Promise<void> }> {
+): Promise<{ client: RedisClient; disconnect: () => Promise<void> }> {
   const client = createClient({
     url: redisUrl,
     socket: {

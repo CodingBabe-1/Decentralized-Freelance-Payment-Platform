@@ -6,7 +6,8 @@
 #![cfg(test)]
 
 use crate::{
-    DisputeContract, DisputeContractClient, DisputeError, DisputeStatus, ThresholdUpdated,
+    ArbitratorAdded, ArbitratorRemoved, DisputeContract, DisputeContractClient, DisputeError,
+    DisputeStatus, ThresholdUpdated,
 };
 use escrow::{EscrowContract, EscrowContractClient, Milestone};
 use soroban_sdk::{
@@ -662,6 +663,8 @@ fn add_arbitrator_grows_panel_and_emits_event() {
     let f = setup();
     let new_member = Address::generate(&f.env);
     f.dispute_client().add_arbitrator(&new_member);
+    // Inspect the log before any further invocation clears it.
+    let events = f.env.events().all();
 
     let panel = f.dispute_client().arbitrators();
     assert_eq!(panel.len(), 2);
@@ -674,7 +677,7 @@ fn add_arbitrator_grows_panel_and_emits_event() {
         panel_size: 2,
     }
     .to_xdr(&f.env, &f.dispute);
-    assert!(f.env.events().all().events().contains(&expected));
+    assert!(events.events().contains(&expected));
 }
 
 #[test]
@@ -692,7 +695,8 @@ fn add_arbitrator_keeps_existing_votes() {
     let b = f.arbitrators.get(1).unwrap();
     f.dispute_client().approve(&dispute_id, &a, &400, &600);
 
-    f.dispute_client().add_arbitrator(&Address::generate(&f.env));
+    f.dispute_client()
+        .add_arbitrator(&Address::generate(&f.env));
 
     f.dispute_client().approve(&dispute_id, &b, &400, &600);
     f.dispute_client().arbitrate(&dispute_id, &400, &600);
@@ -703,6 +707,8 @@ fn remove_arbitrator_shrinks_panel_and_emits_event() {
     let f = setup_panel(3, 2);
     let removed = f.arbitrators.get(2).unwrap();
     f.dispute_client().remove_arbitrator(&removed);
+    // Inspect the log before any further invocation clears it.
+    let events = f.env.events().all();
 
     let panel = f.dispute_client().arbitrators();
     assert_eq!(panel.len(), 2);
@@ -714,7 +720,7 @@ fn remove_arbitrator_shrinks_panel_and_emits_event() {
         panel_size: 2,
     }
     .to_xdr(&f.env, &f.dispute);
-    assert!(f.env.events().all().events().contains(&expected));
+    assert!(events.events().contains(&expected));
 }
 
 #[test]
@@ -777,7 +783,8 @@ fn removing_an_arbitrator_invalidates_votes_and_blocks_revival() {
 fn add_arbitrator_requires_admin_auth() {
     let f = setup();
     f.env.set_auths(&[]);
-    f.dispute_client().add_arbitrator(&Address::generate(&f.env));
+    f.dispute_client()
+        .add_arbitrator(&Address::generate(&f.env));
 }
 
 #[test]

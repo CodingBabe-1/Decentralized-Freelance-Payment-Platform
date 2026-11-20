@@ -4,6 +4,8 @@
 
 <h1 align="center">Stellar Freelance Payment Platform</h1>
 
+[![codecov](https://codecov.io/gh/vatal-system/Decentralized-Freelance-Payment-Platform/branch/main/graph/badge.svg)](https://codecov.io/gh/vatal-system/Decentralized-Freelance-Payment-Platform)
+
 A decentralized freelance payment platform built on Stellar. Enables secure, fast, transparent, and low-cost transactions between freelancers and clients — no intermediaries, no borders.
 
 > **Testnet only.** The contracts are unaudited. Do not deploy them to mainnet or move real funds.
@@ -70,9 +72,9 @@ Honest snapshot of what works today (see [`docs/TESTNET.md`](./docs/TESTNET.md) 
 | `escrow` contract | ✅ Complete — milestones (editable before funding, partial releases), expiry refunds, validated inputs, TTL, events |
 | `dispute` contract | ✅ Complete — verified raise, M-of-N arbitrator panel, resolution that calls back into escrow, dispute timelock |
 | `reputation` contract | ✅ Complete — escrow-verified 1–5 ratings, amount-weighted aggregates, per-escrow anti-spam (`docs/REPUTATION.md`) |
-| Contract tests | ✅ 98 tests: 95 unit tests (escrow 57, dispute 21, reputation 17) covering every state transition and failure path, plus 3 end-to-end tests in `contracts/dispute/tests/full_flow.rs` that drive escrow + dispute + reputation together |
-| Backend tests | ✅ 138 tests |
-| Frontend tests | ✅ 156 tests (Vitest + Testing Library) — pages, components and lib helpers |
+| Contract tests | ✅ 158 tests: 155 unit tests (escrow 82, dispute 47, reputation 26) covering every state transition and failure path, plus 3 end-to-end tests in `contracts/dispute/tests/full_flow.rs` that drive escrow + dispute + reputation together |
+| Backend tests | ✅ 681 tests |
+| Frontend tests | ✅ 515 tests (Vitest + Testing Library) — pages, components and lib helpers |
 | Testnet deployment | ✅ Deployed and initialized (ids in [`deployments/testnet.json`](./deployments/testnet.json)) |
 | Frontend | 🟡 Functional MVP — connect Freighter or LOBSTR, create/fund a job, release milestones, view status, open a dispute, rate the counterparty, read reputation, browse a profile's job history and ratings, export an escrow receipt |
 | Backend API | ✅ Routes + auth implemented; contract-event indexer syncs DB state from Soroban RPC, with a dead-letter table for events it cannot apply |
@@ -327,7 +329,7 @@ browser).
 | Wallets | Freighter and LOBSTR browser extensions (SEP-53 message signing), selectable from an in-app picker |
 | Backend | Express 4 + Prisma 5 + PostgreSQL, Zod validation, JWT (`jose`), Helmet, rate limiting |
 | Chain access | `@stellar/stellar-sdk` 12 (Soroban RPC + Horizon) |
-| CI | GitHub Actions — contracts (fmt, clippy, test, wasm build), frontend, backend (typecheck, tests, and Prisma migrations applied against a Postgres service), dependency vulnerability scan (advisory; `npm audit` + `cargo audit`) |
+| CI | GitHub Actions — contracts (fmt, clippy, test, wasm build), frontend and backend (lint, typecheck, tests with coverage uploaded to Codecov, build; backend migrations applied against a Postgres service), **blocking** dependency vulnerability scan (`npm audit` + `cargo audit`), and Conventional Commits PR-title validation. Dependabot opens grouped weekly upgrade PRs |
 
 ## Repository layout
 
@@ -471,31 +473,38 @@ not just a restart.
 ## Testing
 
 ```bash
-# Contracts — 98 tests (95 unit + 3 integration)
+# Contracts — 135 tests (132 unit + 3 integration)
 cd contracts
 cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test
 stellar contract build          # requires stellar-cli v25.2.0+
 
-# Backend — 74 tests
+# Backend — 681 tests
 cd backend
 npx prisma generate
 npx tsc --noEmit
-npm test
+npm run test:coverage
 
-# Frontend — 86 tests
+# Frontend — 467 tests
 cd frontend
 npm run lint
 npx tsc --noEmit
-npm test
+npm run test:coverage
 npm run build
 ```
 
-CI runs all three on every push and pull request to `main` and
-`integration/staging`, and applies the backend's Prisma migrations against a
-Postgres service so a broken or drifted migration fails the build
-([`.github/workflows/ci.yml`](./.github/workflows/ci.yml)).
+`test:coverage` writes an lcov report to `coverage/lcov.info`; CI uploads both
+packages' reports to Codecov. Tests also run without coverage via `npm test`.
+
+CI runs all three on every push and pull request to `main`, and applies the
+backend's Prisma migrations against a Postgres service so a broken or drifted
+migration fails the build
+([`.github/workflows/ci.yml`](./.github/workflows/ci.yml)). The dependency scan
+is a blocking gate — a new high or critical advisory fails the run rather than
+being reported and ignored. PR titles are validated separately against
+Conventional Commits by
+[`.github/workflows/pr-lint.yml`](./.github/workflows/pr-lint.yml).
 
 ## Deployment
 

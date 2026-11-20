@@ -180,12 +180,23 @@ describe("workflow token scope (issue #111)", () => {
     // Every job in this workflow only checks out, builds and tests (see issue
     // #111). If a step ever genuinely needs write access, grant it in that
     // job's block, justify it there, and update this assertion.
+    //
+    // One exception is justified: the PR safety check publishes its verdict as
+    // a commit status, so a crash or cancellation leaves a pending status
+    // instead of a silently missing one. It runs on `pull_request_target` and
+    // never checks out PR code.
+    const allowedWrites: Record<string, string[]> = {
+      "pr-safety-check.yml": ["statuses: write"],
+    };
     const offenders: string[] = [];
 
     for (const { name, lines } of workflows()) {
       for (const block of permissionBlocks(lines)) {
         for (const entry of block.entries) {
-          if (/:\s*write\s*$/.test(entry.text)) {
+          if (
+            /:\s*write\s*$/.test(entry.text) &&
+            !(allowedWrites[name] ?? []).includes(entry.text)
+          ) {
             offenders.push(
               `${name}:${entry.line} grants \`${entry.text}\` — CI here is read-only`,
             );
