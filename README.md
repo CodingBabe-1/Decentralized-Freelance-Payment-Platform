@@ -123,7 +123,7 @@ state machine, cross-contract calls, and the backend's role — see
 
 | Function | Purpose |
 |----------|---------|
-| `init(admin, dispute_contract)` | One-shot setup; records the only contract allowed to call `resolve` |
+| `init(admin, dispute_contract)` | One-shot setup; records the only contract allowed to call `resolve` (must be a contract address — not the zero address, the admin, or the escrow itself) |
 | `set_dispute_contract(dispute_contract)` | Admin-only; step 1 of a timelocked rotation — proposes a new dispute contract (takes effect after 2 days) |
 | `apply_dispute_contract()` | Admin-only; step 2 — applies the pending dispute contract once the timelock has elapsed |
 | `cancel_dispute_contract_change()` | Admin-only; cancels a pending dispute-contract rotation |

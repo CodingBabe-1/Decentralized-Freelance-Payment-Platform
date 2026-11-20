@@ -43,6 +43,11 @@ const DEFAULT_DISPUTE_TIMEOUT_SECONDS: u64 = 7 * 24 * 60 * 60;
 /// Soroban CPU budget and prevents `resolve`/`remaining` from being blocked
 /// by an unbounded list. Must match the cap enforced by the frontend.
 pub const MAX_MILESTONES: u32 = 20;
+/// Strkey of the all-zero contract address (the contract "null address"). It
+/// can never be deployed, so a dispute contract set to it would brick `resolve`.
+const ZERO_CONTRACT_STRKEY: &str = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
+/// Length of a Stellar account or contract strkey.
+const STRKEY_LEN: u32 = 56;
 /// Seconds a proposed dispute-contract rotation must wait before it can be
 /// applied. Gives participants notice to inspect the new contract or exit.
 pub const DISPUTE_CONTRACT_TIMELOCK_SECONDS: u64 = 2 * 24 * 60 * 60;
@@ -186,12 +191,15 @@ impl EscrowContract {
     /// One-time initialization.
     ///
     /// - `admin`            – address allowed to rotate the dispute contract.
-    /// - `dispute_contract` – the only address permitted to call [`resolve`].
+    /// - `dispute_contract` – the only address permitted to call [`resolve`]. Must
+    ///   be a contract address, not the zero address, and distinct from `admin`
+    ///   and from this contract; otherwise `InvalidDisputeContract`.
     pub fn init(env: Env, admin: Address, dispute_contract: Address) -> Result<(), EscrowError> {
         admin.require_auth();
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(EscrowError::AlreadyInitialized);
         }
+        Self::validate_dispute_contract(&env, &admin, &dispute_contract)?;
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
             .instance()
@@ -236,6 +244,7 @@ impl EscrowContract {
             .get(&DataKey::Admin)
             .ok_or(EscrowError::NotInitialized)?;
         admin.require_auth();
+        Self::validate_dispute_contract(&env, &admin, &dispute_contract)?;
         let effective_at = env
             .ledger()
             .timestamp()
@@ -874,6 +883,34 @@ impl EscrowContract {
     // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------
+
+    /// Reject dispute-contract addresses that could never authorise `resolve`
+    /// (accounts, the zero contract address) or that are privileged/self
+    /// addresses (the admin, this escrow contract).
+    fn validate_dispute_contract(
+        env: &Env,
+        admin: &Address,
+        dispute_contract: &Address,
+    ) -> Result<(), EscrowError> {
+        if dispute_contract == admin || *dispute_contract == env.current_contract_address() {
+            return Err(EscrowError::InvalidDisputeContract);
+        }
+        let strkey = dispute_contract.to_string();
+        if strkey.len() != STRKEY_LEN {
+            return Err(EscrowError::InvalidDisputeContract);
+        }
+        let mut buf = [0u8; STRKEY_LEN as usize];
+        strkey.copy_into_slice(&mut buf);
+        // Contract strkeys start with 'C'; account strkeys ('G') cannot be a
+        // contract and so can never be a dispute contract.
+        if buf[0] != b'C' {
+            return Err(EscrowError::InvalidDisputeContract);
+        }
+        if *dispute_contract == Address::from_str(env, ZERO_CONTRACT_STRKEY) {
+            return Err(EscrowError::InvalidDisputeContract);
+        }
+        Ok(())
+    }
 
     /// Sum of amounts still unpaid across all milestones (funds still held).
     fn remaining(escrow: &EscrowData) -> Result<i128, EscrowError> {

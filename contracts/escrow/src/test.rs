@@ -1090,6 +1090,47 @@ fn init_twice_is_rejected() {
     assert!(matches!(res, Err(Ok(EscrowError::AlreadyInitialized))));
 }
 
+const ZERO_CONTRACT: &str = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
+const ACCOUNT_ADDRESS: &str = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+
+#[test]
+fn init_rejects_invalid_dispute_contract() {
+    let f = fixture();
+    let admin = Address::generate(&f.env);
+    let invalid = [
+        admin.clone(),
+        f.escrow.clone(),
+        Address::from_str(&f.env, ZERO_CONTRACT),
+        Address::from_str(&f.env, ACCOUNT_ADDRESS),
+    ];
+    for bad in invalid.iter() {
+        let res = f.c().try_init(&admin, bad);
+        assert!(matches!(res, Err(Ok(EscrowError::InvalidDisputeContract))));
+    }
+    // Nothing was persisted, so a valid init still succeeds.
+    f.c().init(&admin, &Address::generate(&f.env));
+}
+
+#[test]
+fn set_dispute_contract_rejects_invalid_dispute_contract() {
+    let f = fixture();
+    let admin = Address::generate(&f.env);
+    let dispute = Address::generate(&f.env);
+    init_escrow(&f, &admin, &dispute);
+    let invalid = [
+        admin.clone(),
+        f.escrow.clone(),
+        Address::from_str(&f.env, ZERO_CONTRACT),
+        Address::from_str(&f.env, ACCOUNT_ADDRESS),
+    ];
+    for bad in invalid.iter() {
+        let res = f.c().try_set_dispute_contract(bad);
+        assert!(matches!(res, Err(Ok(EscrowError::InvalidDisputeContract))));
+    }
+    assert!(f.c().pending_dispute_contract().is_none());
+    assert_eq!(f.c().dispute_contract(), dispute);
+}
+
 #[test]
 fn pause_blocks_escrow_changes_until_admin_unpauses() {
     let f = fixture();

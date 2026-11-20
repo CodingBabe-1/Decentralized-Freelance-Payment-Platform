@@ -90,6 +90,9 @@ pub enum EscrowError {
     NoPendingDisputeContract = 20,
     /// The dispute-contract rotation timelock has not elapsed yet.
     DisputeContractTimelockActive = 21,
+    /// The dispute contract address is not a usable contract address: it is
+    /// an account, the zero contract address, the admin, or the escrow itself.
+    InvalidDisputeContract = 22,
 }
 
 // ---------------------------------------------------------------------------

@@ -75,6 +75,7 @@ Source: `contracts/interface/src/lib.rs`
 | `#19` | `Paused` | Escrow contract operations are temporarily paused by admin. | Await unpause by the platform administrator. |
 | `#20` | `NoPendingDisputeContract` | `apply_dispute_contract` or `cancel_dispute_contract_change` called with no pending rotation. | Call `set_dispute_contract` first to propose a new dispute contract. |
 | `#21` | `DisputeContractTimelockActive` | `apply_dispute_contract` called before the 2-day timelock elapsed. | Wait until the proposal's `effective_at` timestamp (see `pending_dispute_contract`). |
+| `#22` | `InvalidDisputeContract` | `init` or `set_dispute_contract` given an account (`G...`) address, the zero contract address, the admin, or the escrow contract itself. | Pass the deployed dispute contract's `C...` address. |
 
 ---
 

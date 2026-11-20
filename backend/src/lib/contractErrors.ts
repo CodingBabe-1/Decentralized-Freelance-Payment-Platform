@@ -44,6 +44,7 @@ export const ESCROW_ERROR_MESSAGES: Record<number, string> = {
   19: "The escrow contract is paused.",
   20: "There is no pending dispute contract change.",
   21: "The dispute contract change is still timelocked.",
+  22: "The dispute contract address is invalid (it must be a contract address, not the zero address, the admin, or the escrow itself).",
 };
 
 /** `DisputeError` discriminants from `contracts/dispute/src/lib.rs`. */
