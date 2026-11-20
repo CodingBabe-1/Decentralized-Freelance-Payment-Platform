@@ -59,8 +59,8 @@ import { createWebhookSchema } from "./routes/webhooks";
 // schema below is registered.
 extendZodWithOpenApi(z);
 
-/** Serve `/api/docs` in development and test, but never in production. */
-export const docsEnabled = config.NODE_ENV !== "production";
+/** Serve `/api/docs` in development, test, or when explicitly enabled via ENABLE_API_DOCS (issue #263). */
+export const docsEnabled = config.NODE_ENV !== "production" || config.ENABLE_API_DOCS;
 
 const registry = new OpenAPIRegistry();
 

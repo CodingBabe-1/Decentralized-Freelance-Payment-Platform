@@ -158,4 +158,30 @@ describe("OpenAPI document", () => {
       );
     }
   });
+
+  it("is mounted in production when ENABLE_API_DOCS is true (issue #263)", async () => {
+    vi.resetModules();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("CORS_ORIGIN", "https://app.example.com");
+    vi.stubEnv("ENABLE_API_DOCS", "true");
+
+    const { createApp } = (await import("../app")) as { createApp: () => Promise<Express> };
+    const app = await createApp();
+    const stagingServer = await new Promise<Server>((resolve) => {
+      const s = app.listen(0, "127.0.0.1", () => resolve(s));
+    });
+    const address = stagingServer.address();
+    if (address === null || typeof address === "string") throw new Error("no port assigned");
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${address.port}/api/docs/openapi.json`);
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { openapi: string };
+      expect(json.openapi).toMatch(/^3\./);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        stagingServer.close((err) => (err ? reject(err) : resolve())),
+      );
+    }
+  });
 });

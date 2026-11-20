@@ -468,6 +468,7 @@ not just a restart.
 | `AUTH_RATE_LIMIT_MAX` | — | Per-IP budget for each wallet-auth route (`/api/users/challenge`, `/api/users/auth`), counted separately. Defaults to `10` |
 | `AUTH_RATE_LIMIT_WINDOW_MS` | — | Window for those budgets, in milliseconds. Defaults to `60000` |
 | `TRUST_PROXY` | — | Reverse proxy hop count (e.g. `1` behind Render/Heroku/Nginx) so rate limiting keys on real client IP. Defaults to `0` |
+| `ENABLE_API_DOCS` | for staging | When `true`, exposes Swagger UI / OpenAPI docs at `/api/docs` even with `NODE_ENV=production`. Defaults to `false` |
 | `PORT` | — | Defaults to `3000` |
 
 ## Testing

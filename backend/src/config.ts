@@ -82,6 +82,8 @@ const schema = z.object({
   REDIS_SOCKET_RECONNECT_INTERVAL_MS: z.coerce.number().int().positive().default(1000),
   // Frontend URL for email verification links (issue #233)
   FRONTEND_URL: z.string().url().default("http://localhost:3001"),
+  // Safely expose Swagger UI / OpenAPI docs in staging environments (issue #263)
+  ENABLE_API_DOCS: z.coerce.boolean().default(false),
 }).superRefine((env, ctx) => {
   const message = corsConfigError(env.CORS_ORIGIN, env.NODE_ENV);
   if (message) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["CORS_ORIGIN"], message });
