@@ -31,7 +31,7 @@ import {
   xdr,
 } from "@stellar/stellar-sdk";
 import { fromBaseUnits, toBaseUnits } from "./assets";
-import { ContractReadError, asReadError, classifyReadFailure, friendlyError } from "./errors";
+import { ContractReadError, asReadError, classifyReadFailure, friendlyError, type ContractErrorContract } from "./errors";
 
 // ---------------------------------------------------------------------------
 // Network config
@@ -210,11 +210,10 @@ async function readSourceAccount(): Promise<Account> {
 
   try {
     return await server.getAccount(READONLY_SOURCE);
-  } catch (e) {
-    const detail = e instanceof Error ? e.message : String(e);
+  } catch {
     throw new ContractReadError(
       "unavailable",
-      `The configured read-only source account (${READONLY_SOURCE}) could not be loaded: ${detail}`,
+      "Could not load the read-only source account. Check the Stellar network connection.",
     );
   }
 }
@@ -249,16 +248,19 @@ async function simulateContractCall(
     .setTimeout(60)
     .build();
 
+  const contract: ContractErrorContract = contractId === CONTRACT_ADDRESSES.reputation
+    ? "reputation"
+    : contractId === CONTRACT_ADDRESSES.dispute ? "dispute" : "escrow";
   let sim: SorobanRpc.Api.SimulateTransactionResponse;
   try {
     sim = await server.simulateTransaction(tx);
   } catch (e) {
     // Transport failure (offline, DNS, RPC 5xx): no answer was received.
-    throw asReadError(e);
+    throw asReadError(e, contract);
   }
 
   const err = simulationError(sim);
-  if (err) throw new ContractReadError(classifyReadFailure(err), friendlyError(err));
+  if (err) throw new ContractReadError(classifyReadFailure(err, contract), friendlyError(err, contract));
 
   const success = sim as SorobanRpc.Api.SimulateTransactionSuccessResponse;
   const result = success.result?.retval ? scValToNative(success.result.retval) : undefined;
