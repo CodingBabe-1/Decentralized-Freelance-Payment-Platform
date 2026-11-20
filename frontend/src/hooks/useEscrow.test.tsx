@@ -218,11 +218,21 @@ describe("useEscrow transaction state", () => {
     // A second transaction on a contract the first one never prepared would
     // fail anyway; failing fast keeps the escrow's state and the API's in step.
     expect(h.buildContractCall).toHaveBeenCalledTimes(1);
-    // DisputeError #8 is `NotAParty`; the shared frontend map words it for the
-    // escrow contract too, which is why it reads generically.
-    expect(result.current.error).toBe(
-      "The milestone list is invalid, or you're not a party to this job.",
-    );
+    // open_dispute is an escrow call; #8 means InvalidMilestones here.
+    expect(result.current.error).toBe("The milestone list is invalid.");
+  });
+
+  it("uses dispute errors after escrow.open_dispute succeeds but dispute.raise fails", async () => {
+    h.buildContractCall
+      .mockResolvedValueOnce({ xdr: "tx-xdr", result: 0n })
+      .mockRejectedValueOnce(new Error("HostError: Error(Contract, #8)"));
+    const { result } = renderEscrow();
+    await act(async () => { await result.current.openDispute(7n, "Milestone not delivered"); });
+    expect(h.buildContractCall).toHaveBeenCalledTimes(2);
+    expect(result.current.error).toBe("Only the client or freelancer can raise this dispute.");
+    expect(screen.getAllByRole("alert").some((alert) =>
+      alert.textContent?.includes("Only the client or freelancer can raise this dispute."),
+    )).toBe(true);
   });
 
   it("counts a dispute reclaim as a pending write so background polling pauses", async () => {
@@ -313,9 +323,18 @@ describe("useEscrow transaction state", () => {
     });
 
     expect(result.current.lastFailure).toEqual({ kind: "rate", code: 5 });
-    expect(result.current.error).toBe(
-      "That milestone index is out of range, or you've already rated this job.",
+    expect(result.current.error).toBe("You have already rated this job.");
+  });
+
+  it("hides unknown contract errors while retaining their diagnostic code", async () => {
+    h.buildContractCall.mockRejectedValueOnce(
+      new Error("HostError: Error(Contract, #999)\n  at secret"),
     );
+    const { result } = renderEscrow();
+    await act(async () => { await result.current.releaseMilestone(7n, 0); });
+    expect(result.current.lastFailure).toEqual({ kind: "release", code: 999 });
+    expect(result.current.error).toBe("Something went wrong. Please try again.");
+    expect(screen.getByRole("alert").textContent).not.toContain("secret");
   });
 
   it("reports a non-contract failure without a code", async () => {
@@ -327,7 +346,7 @@ describe("useEscrow transaction state", () => {
     });
 
     expect(result.current.lastFailure).toEqual({ kind: "rate", code: null });
-    expect(result.current.error).toBe("wallet not connected");
+    expect(result.current.error).toBe("Connect your wallet and try again.");
   });
 
   it("reads escrow and reputation with no wallet connected (shared links)", async () => {
@@ -397,7 +416,7 @@ describe("useEscrow transaction state", () => {
     await act(async () => {
       await result.current.releaseMilestone(1n, 0);
     });
-    expect(result.current.error).toBe("boom");
+    expect(result.current.error).toBe("Something went wrong. Please try again.");
 
     h.readContract.mockResolvedValueOnce({ status: "Active" });
     await act(async () => {
