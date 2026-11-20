@@ -12,7 +12,7 @@ use escrow::{EscrowContract, EscrowContractClient, Milestone};
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
-    Address, Env, Event as _, String, Vec,
+    Address, BytesN, Env, Event as _, String, Vec,
 };
 
 struct Fx {
@@ -625,4 +625,205 @@ fn dispute_for_an_escrow_without_a_dispute_is_not_found() {
     f.disputed(); // frozen, but never raised
     let res = f.dispute_client().try_dispute_for(&f.escrow, &0);
     assert!(matches!(res, Err(Ok(DisputeError::NotFound))));
+}
+
+// ---------------------------------------------------------------------------
+// staged panel changes (admin-only, no member signatures)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn set_panel_needs_only_admin_auth() {
+    use soroban_sdk::{testutils::MockAuth, testutils::MockAuthInvoke, IntoVal};
+
+    let f = setup();
+    let mut panel = Vec::new(&f.env);
+    panel.push_back(Address::generate(&f.env));
+    panel.push_back(Address::generate(&f.env));
+
+    // Only the admin signs; the incoming members never do.
+    f.env.set_auths(&[]);
+    f.dispute_client()
+        .mock_auths(&[MockAuth {
+            address: &f.admin,
+            invoke: &MockAuthInvoke {
+                contract: &f.dispute,
+                fn_name: "set_panel",
+                args: (panel.clone(), 2u32).into_val(&f.env),
+                sub_invokes: &[],
+            },
+        }])
+        .set_panel(&panel, &2);
+    assert_eq!(f.dispute_client().arbitrators(), panel);
+    assert_eq!(f.dispute_client().threshold(), 2);
+}
+
+#[test]
+fn add_arbitrator_grows_panel_and_emits_event() {
+    let f = setup();
+    let new_member = Address::generate(&f.env);
+    f.dispute_client().add_arbitrator(&new_member);
+
+    let panel = f.dispute_client().arbitrators();
+    assert_eq!(panel.len(), 2);
+    assert!(panel.contains(&new_member));
+    assert_eq!(f.dispute_client().threshold(), 1);
+
+    let expected = ArbitratorAdded {
+        admin: f.admin.clone(),
+        arbitrator: new_member,
+        panel_size: 2,
+    }
+    .to_xdr(&f.env, &f.dispute);
+    assert!(f.env.events().all().events().contains(&expected));
+}
+
+#[test]
+fn add_arbitrator_rejects_existing_member() {
+    let f = setup();
+    let res = f.dispute_client().try_add_arbitrator(&f.arbitrator());
+    assert!(matches!(res, Err(Ok(DisputeError::ArbitratorExists))));
+}
+
+#[test]
+fn add_arbitrator_keeps_existing_votes() {
+    let f = setup_panel(2, 2);
+    let (_, dispute_id) = f.raised();
+    let a = f.arbitrators.get(0).unwrap();
+    let b = f.arbitrators.get(1).unwrap();
+    f.dispute_client().approve(&dispute_id, &a, &400, &600);
+
+    f.dispute_client().add_arbitrator(&Address::generate(&f.env));
+
+    f.dispute_client().approve(&dispute_id, &b, &400, &600);
+    f.dispute_client().arbitrate(&dispute_id, &400, &600);
+}
+
+#[test]
+fn remove_arbitrator_shrinks_panel_and_emits_event() {
+    let f = setup_panel(3, 2);
+    let removed = f.arbitrators.get(2).unwrap();
+    f.dispute_client().remove_arbitrator(&removed);
+
+    let panel = f.dispute_client().arbitrators();
+    assert_eq!(panel.len(), 2);
+    assert!(!panel.contains(&removed));
+
+    let expected = ArbitratorRemoved {
+        admin: f.admin.clone(),
+        arbitrator: removed,
+        panel_size: 2,
+    }
+    .to_xdr(&f.env, &f.dispute);
+    assert!(f.env.events().all().events().contains(&expected));
+}
+
+#[test]
+fn remove_arbitrator_rejects_unknown_member() {
+    let f = setup_panel(2, 1);
+    let res = f
+        .dispute_client()
+        .try_remove_arbitrator(&Address::generate(&f.env));
+    assert!(matches!(res, Err(Ok(DisputeError::ArbitratorNotFound))));
+}
+
+#[test]
+fn remove_arbitrator_cannot_drop_panel_below_threshold() {
+    let f = setup_panel(2, 2);
+    let res = f.dispute_client().try_remove_arbitrator(&f.arbitrator());
+    assert!(matches!(res, Err(Ok(DisputeError::InvalidThreshold))));
+
+    // Lowering the threshold first makes the removal legal.
+    f.dispute_client().set_threshold(&1);
+    f.dispute_client().remove_arbitrator(&f.arbitrator());
+    assert_eq!(f.dispute_client().arbitrators().len(), 1);
+}
+
+#[test]
+fn remove_arbitrator_cannot_empty_the_panel() {
+    let f = setup();
+    let res = f.dispute_client().try_remove_arbitrator(&f.arbitrator());
+    assert!(matches!(res, Err(Ok(DisputeError::InvalidPanel))));
+}
+
+#[test]
+fn removing_an_arbitrator_invalidates_votes_and_blocks_revival() {
+    let f = setup_panel(3, 2);
+    let (_, dispute_id) = f.raised();
+    let a = f.arbitrators.get(0).unwrap();
+    let b = f.arbitrators.get(1).unwrap();
+    let c = f.arbitrators.get(2).unwrap();
+    f.dispute_client().approve(&dispute_id, &a, &400, &600);
+    f.dispute_client().approve(&dispute_id, &b, &400, &600);
+
+    f.dispute_client().remove_arbitrator(&a);
+    let res = f.dispute_client().try_arbitrate(&dispute_id, &400, &600);
+    assert!(matches!(res, Err(Ok(DisputeError::InsufficientApprovals))));
+
+    // The removed member cannot vote any more.
+    let res = f.dispute_client().try_approve(&dispute_id, &a, &400, &600);
+    assert!(matches!(res, Err(Ok(DisputeError::Unauthorized))));
+
+    // Re-adding does not revive the old vote; remaining members re-approve.
+    f.dispute_client().add_arbitrator(&a);
+    let res = f.dispute_client().try_arbitrate(&dispute_id, &400, &600);
+    assert!(matches!(res, Err(Ok(DisputeError::InsufficientApprovals))));
+    f.dispute_client().approve(&dispute_id, &b, &400, &600);
+    f.dispute_client().approve(&dispute_id, &c, &400, &600);
+    f.dispute_client().arbitrate(&dispute_id, &400, &600);
+}
+
+#[test]
+#[should_panic]
+fn add_arbitrator_requires_admin_auth() {
+    let f = setup();
+    f.env.set_auths(&[]);
+    f.dispute_client().add_arbitrator(&Address::generate(&f.env));
+}
+
+#[test]
+#[should_panic]
+fn remove_arbitrator_requires_admin_auth() {
+    let f = setup_panel(2, 1);
+    f.env.set_auths(&[]);
+    f.dispute_client().remove_arbitrator(&f.arbitrator());
+}
+
+#[test]
+fn staged_panel_changes_before_init_are_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let dispute = env.register(DisputeContract, ());
+    let client = DisputeContractClient::new(&env, &dispute);
+    let who = Address::generate(&env);
+    assert!(matches!(
+        client.try_add_arbitrator(&who),
+        Err(Ok(DisputeError::NotInitialized))
+    ));
+    assert!(matches!(
+        client.try_remove_arbitrator(&who),
+        Err(Ok(DisputeError::NotInitialized))
+    ));
+}
+
+// ---------------------------------------------------------------------------
+// set_code (upgradeability)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn set_code_before_init_is_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let dispute = env.register(DisputeContract, ());
+    let hash = BytesN::from_array(&env, &[7u8; 32]);
+    let res = DisputeContractClient::new(&env, &dispute).try_set_code(&hash);
+    assert!(matches!(res, Err(Ok(DisputeError::NotInitialized))));
+}
+
+#[test]
+#[should_panic]
+fn set_code_requires_admin_auth() {
+    let f = setup();
+    f.env.set_auths(&[]);
+    f.dispute_client()
+        .set_code(&BytesN::from_array(&f.env, &[7u8; 32]));
 }

@@ -69,7 +69,7 @@ Honest snapshot of what works today (see [`docs/TESTNET.md`](./docs/TESTNET.md) 
 |------|--------|
 | `escrow` contract | ✅ Complete — milestones (editable before funding, partial releases), expiry refunds, validated inputs, TTL, events |
 | `dispute` contract | ✅ Complete — verified raise, M-of-N arbitrator panel, resolution that calls back into escrow, dispute timelock |
-| `reputation` contract | ✅ Complete — escrow-verified 1–5 ratings, amount-weighted aggregates, per-pair anti-spam (`docs/REPUTATION.md`) |
+| `reputation` contract | ✅ Complete — escrow-verified 1–5 ratings, amount-weighted aggregates, per-escrow anti-spam (`docs/REPUTATION.md`) |
 | Contract tests | ✅ 98 tests: 95 unit tests (escrow 57, dispute 21, reputation 17) covering every state transition and failure path, plus 3 end-to-end tests in `contracts/dispute/tests/full_flow.rs` that drive escrow + dispute + reputation together |
 | Backend tests | ✅ 138 tests |
 | Frontend tests | ✅ 156 tests (Vitest + Testing Library) — pages, components and lib helpers |
@@ -573,9 +573,9 @@ For mainnet launches, multi-sig admin governance, high-availability RPC failover
   behind the chain tip rather than at genesis; a cursor older than the window is
   clamped, and the events in between are unrecoverable.
 - **USDC is not wired on testnet yet** — the demo pays with the XLM SAC.
-- **Rating strength is not identity-aware.** Amount-weighting and per-pair
+- **Rating strength is not identity-aware.** Amount-weighting and per-escrow
   anti-spam raise the cost of farming, but a determined actor with many funded
-  pairs can still inflate an aggregate.
+  escrows can still inflate an aggregate.
 
 ## Inspiration
 

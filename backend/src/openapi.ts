@@ -1059,7 +1059,7 @@ registry.registerPath({
   summary: "Get an address's weighted aggregate reputation",
   description:
     "Mirrors `reputation.get_aggregate`: each counted rating is weighted by its escrow's " +
-    "total amount, and only the first rating from a given rater counts. `totalScore` and " +
+    "total amount (normalized to 7 decimals, so token precision does not matter), and each escrow counts once per rater. `totalScore` and " +
     "`weight` are the contract's u64 fields as decimal strings; `averageScore` is " +
     "`totalScore / weight` (0 when there are no counted ratings).",
   request: { params: z.object({ address: z.string() }) },

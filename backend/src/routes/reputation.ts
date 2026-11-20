@@ -163,10 +163,9 @@ reputationRouter.get("/:address", async (req, res, next) => {
       where: { ratee: { stellarAddress: req.params.address } },
       select: {
         score: true,
-        raterId: true,
-        job: { select: { totalAmount: true, asset: true } },
+        job: { select: { totalAmount: true } },
       },
-      // Oldest first: the first rating from a rater is the one that counted.
+      // Oldest first, with `id` as a tiebreak, so the order is deterministic.
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
 

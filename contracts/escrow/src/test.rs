@@ -20,7 +20,7 @@ use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
     xdr::{self, Limits, ReadXdr},
-    Address, Env, Map, Symbol, TryFromVal, Val, Vec,
+    Address, BytesN, Env, Map, Symbol, TryFromVal, Val, Vec,
 };
 
 // ---------------------------------------------------------------------------
@@ -1252,6 +1252,24 @@ fn pause_requires_admin_authorization() {
     f.c().init(&admin, &Address::generate(&f.env));
     f.env.set_auths(&[]);
     f.c().pause();
+}
+
+#[test]
+fn set_code_before_init_is_rejected() {
+    let f = fixture();
+    let hash = BytesN::from_array(&f.env, &[7u8; 32]);
+    let res = f.c().try_set_code(&hash);
+    assert!(matches!(res, Err(Ok(EscrowError::NotInitialized))));
+}
+
+#[test]
+#[should_panic]
+fn set_code_requires_admin_authorization() {
+    let f = fixture();
+    let admin = Address::generate(&f.env);
+    f.c().init(&admin, &Address::generate(&f.env));
+    f.env.set_auths(&[]);
+    f.c().set_code(&BytesN::from_array(&f.env, &[7u8; 32]));
 }
 
 #[test]
