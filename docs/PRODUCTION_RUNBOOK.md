@@ -231,6 +231,6 @@ If primary RPC drops requests or lags:
 
 ### 3. Compromised Arbitrator Key
 If an arbitrator's private key is leaked:
-1. Initiate emergency multisig transaction to invoke `dispute.set_panel(new_arbitrators, new_threshold)`.
+1. Initiate emergency multisig transaction to invoke `dispute.remove_arbitrator(compromised)` (lower the threshold with `dispute.set_threshold` first if the panel would fall below it), then `dispute.add_arbitrator(replacement)`. Only the admin signs; the other arbitrators do not need to. `dispute.set_panel(new_arbitrators, new_threshold)` replaces the whole panel in one call.
 2. Update `ARBITRATOR_ADDRESSES` on backend services.
 3. Any open disputes will require approvals from the newly authorized panel.

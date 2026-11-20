@@ -11,6 +11,10 @@
 //! - A panel of arbitrators is set once via `init`; every member must authorize
 //!   `init`, so the role cannot be sniped by a front-runner. Resolutions need
 //!   `threshold`-of-`panel` approvals.
+//! - After `init` the panel is managed by the admin alone: `add_arbitrator` and
+//!   `remove_arbitrator` change one seat at a time, and `set_panel` replaces the
+//!   whole panel. None of them need a signature from any panel member, so a
+//!   member who lost their keys or went silent can still be replaced.
 //! - Each `approve` records an arbitrator's signature for a specific split
 //!   `(client_share, freelancer_share)`. `arbitrate` only proceeds once enough
 //!   panel members approved *that same split*, then cross-calls
@@ -142,6 +146,26 @@ pub struct ThresholdUpdated {
     pub new_threshold: u32,
 }
 
+/// Admin added one arbitrator to the panel (see `docs/EVENTS.md`).
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArbitratorAdded {
+    #[topic]
+    pub admin: Address,
+    pub arbitrator: Address,
+    pub panel_size: u32,
+}
+
+/// Admin removed one arbitrator from the panel (see `docs/EVENTS.md`).
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArbitratorRemoved {
+    #[topic]
+    pub admin: Address,
+    pub arbitrator: Address,
+    pub panel_size: u32,
+}
+
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
@@ -164,6 +188,8 @@ pub enum DisputeError {
     InvalidThreshold = 12,
     InsufficientApprovals = 13,
     Paused = 14,
+    ArbitratorExists = 15,
+    ArbitratorNotFound = 16,
 }
 
 // ---------------------------------------------------------------------------
@@ -207,8 +233,9 @@ impl DisputeContract {
         Ok(())
     }
 
-    /// Replace the arbitrator panel and threshold. Admin and new members must
-    /// authorize; all approvals from the previous panel are invalidated.
+    /// Replace the arbitrator panel and threshold. Admin only; the incoming
+    /// members do not need to sign. All approvals from the previous panel are
+    /// invalidated.
     pub fn set_panel(
         env: Env,
         arbitrators: Vec<Address>,
@@ -217,11 +244,6 @@ impl DisputeContract {
         let admin = Self::admin(&env)?;
         admin.require_auth();
         Self::validate_panel(&env, &arbitrators, threshold)?;
-        for arbitrator in arbitrators.iter() {
-            if arbitrator != admin {
-                arbitrator.require_auth();
-            }
-        }
 
         let version: u32 = env
             .storage()
@@ -239,6 +261,100 @@ impl DisputeContract {
             .instance()
             .set(&DataKey::PanelVersion, &next_version);
         Self::extend_instance(&env);
+        Ok(())
+    }
+
+    /// Add one arbitrator to the panel. Admin only; the new member does not need
+    /// to sign.
+    ///
+    /// The threshold is unchanged and votes already cast stay valid, so a panel
+    /// can grow while disputes are under review.
+    pub fn add_arbitrator(env: Env, arbitrator: Address) -> Result<(), DisputeError> {
+        let admin = Self::admin(&env)?;
+        admin.require_auth();
+        let mut panel: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Arbitrators)
+            .ok_or(DisputeError::NotInitialized)?;
+        if panel.iter().any(|a| a == arbitrator) {
+            return Err(DisputeError::ArbitratorExists);
+        }
+        panel.push_back(arbitrator.clone());
+        env.storage().instance().set(&DataKey::Arbitrators, &panel);
+        Self::extend_instance(&env);
+
+        ArbitratorAdded {
+            admin,
+            arbitrator,
+            panel_size: panel.len(),
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Remove one arbitrator from the panel. Admin only; the removed member does
+    /// not need to sign, so an unresponsive or compromised arbitrator can always
+    /// be dropped.
+    ///
+    /// Fails with `InvalidThreshold` if the remaining panel would be smaller than
+    /// the threshold; lower it with `set_threshold` first. Like `set_panel`, a
+    /// removal bumps the panel version, so every vote cast so far is invalidated
+    /// (the removed member's vote can never be revived by re-adding them, and a
+    /// compromised key cannot leave a lingering vote behind). Remaining members
+    /// re-approve.
+    pub fn remove_arbitrator(env: Env, arbitrator: Address) -> Result<(), DisputeError> {
+        let admin = Self::admin(&env)?;
+        admin.require_auth();
+        let panel: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Arbitrators)
+            .ok_or(DisputeError::NotInitialized)?;
+        let threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::Threshold)
+            .ok_or(DisputeError::NotInitialized)?;
+
+        let mut remaining = Vec::new(&env);
+        let mut found = false;
+        for member in panel.iter() {
+            if member == arbitrator {
+                found = true;
+            } else {
+                remaining.push_back(member);
+            }
+        }
+        if !found {
+            return Err(DisputeError::ArbitratorNotFound);
+        }
+        if remaining.is_empty() {
+            return Err(DisputeError::InvalidPanel);
+        }
+        if threshold > remaining.len() {
+            return Err(DisputeError::InvalidThreshold);
+        }
+        let version: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PanelVersion)
+            .unwrap_or(0);
+        let next_version = version.checked_add(1).ok_or(DisputeError::Overflow)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::Arbitrators, &remaining);
+        env.storage()
+            .instance()
+            .set(&DataKey::PanelVersion, &next_version);
+        Self::extend_instance(&env);
+
+        ArbitratorRemoved {
+            admin,
+            arbitrator,
+            panel_size: remaining.len(),
+        }
+        .publish(&env);
         Ok(())
     }
 
