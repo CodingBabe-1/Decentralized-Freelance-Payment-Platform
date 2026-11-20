@@ -5,7 +5,9 @@
 
 #![cfg(test)]
 
-use crate::{DisputeContract, DisputeContractClient, DisputeError, DisputeStatus, ThresholdUpdated};
+use crate::{
+    DisputeContract, DisputeContractClient, DisputeError, DisputeStatus, ThresholdUpdated,
+};
 use escrow::{EscrowContract, EscrowContractClient, Milestone};
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger},

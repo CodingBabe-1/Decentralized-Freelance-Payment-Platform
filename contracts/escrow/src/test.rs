@@ -1316,7 +1316,10 @@ fn re_proposing_replaces_pending_and_restarts_timelock() {
 
     let pending = f.c().pending_dispute_contract().unwrap();
     assert_eq!(pending.new_contract, second);
-    assert_eq!(pending.effective_at, 2_000 + DISPUTE_CONTRACT_TIMELOCK_SECONDS);
+    assert_eq!(
+        pending.effective_at,
+        2_000 + DISPUTE_CONTRACT_TIMELOCK_SECONDS
+    );
 }
 
 #[test]
