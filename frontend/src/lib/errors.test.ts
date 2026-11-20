@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  UNKNOWN_ERROR_MESSAGE,
+  ContractCallError,
   ContractReadError,
   asReadError,
   classifyReadFailure,
   describeReadFailure,
   friendlyError,
   parseContractErrorCode,
+  type ContractErrorContract,
 } from "./errors";
 
 describe("parseContractErrorCode", () => {
@@ -20,30 +23,102 @@ describe("parseContractErrorCode", () => {
 });
 
 describe("friendlyError", () => {
-  it("translates a known escrow code", () => {
-    // NotExpired = 6 (see contracts/interface/src/lib.rs).
-    expect(friendlyError(new Error("HostError: Error(Contract, #6)"))).toMatch(
-      /expiry/,
-    );
-    expect(friendlyError(new Error("HostError: Error(Contract, #13)"))).toMatch(
-      /shares/,
-    );
+  const soroban = (code: number) => new Error("HostError: Error(Contract, #" + code + ")");
+
+  const cases: Array<[ContractErrorContract, number, string]> = [
+    ["escrow", 1, "could not be found"],
+    ["escrow", 2, "current state"],
+    ["escrow", 3, "not authorized"],
+    ["escrow", 4, "already been released"],
+    ["escrow", 5, "index is out of range"],
+    ["escrow", 6, "expiry"],
+    ["escrow", 7, "greater than zero"],
+    ["escrow", 8, "milestone list"],
+    ["escrow", 9, "expiry time"],
+    ["escrow", 10, "different addresses"],
+    ["escrow", 11, "already initialized"],
+    ["escrow", 12, "isn't initialized"],
+    ["escrow", 13, "payout shares"],
+    ["escrow", 14, "too large"],
+    ["escrow", 15, "what's left"],
+    ["escrow", 16, "timeout hasn't"],
+    ["escrow", 17, "20 milestones"],
+    ["escrow", 18, "greater than zero"],
+    ["escrow", 19, "paused"],
+    ["escrow", 20, "no pending"],
+    ["escrow", 21, "timelocked"],
+    ["escrow", 22, "address is invalid"],
+    ["dispute", 1, "could not be found"],
+    ["dispute", 2, "already initialized"],
+    ["dispute", 3, "isn't initialized"],
+    ["dispute", 4, "current state"],
+    ["dispute", 5, "already been raised"],
+    ["dispute", 6, "escrow could not be found"],
+    ["dispute", 7, "before raising"],
+    ["dispute", 8, "client or freelancer"],
+    ["dispute", 9, "proposed payout"],
+    ["dispute", 10, "too large"],
+    ["dispute", 11, "panel is invalid"],
+    ["dispute", 12, "threshold is invalid"],
+    ["dispute", 13, "Not enough arbitrators"],
+    ["dispute", 14, "paused"],
+    ["reputation", 1, "could not be found"],
+    ["reputation", 2, "already initialized"],
+    ["reputation", 3, "isn't initialized"],
+    ["reputation", 4, "between 1 and 5"],
+    ["reputation", 5, "already rated"],
+    ["reputation", 6, "escrow could not be found"],
+    ["reputation", 7, "must be completed"],
+    ["reputation", 8, "Only participants"],
+    ["reputation", 9, "other participant"],
+    ["reputation", 10, "too large"],
+  ];
+
+  it.each(cases)("%s contract error #%i has a short human message", (contract, code, fragment) => {
+    const message = friendlyError(soroban(code), contract);
+    expect(message).toContain(fragment);
+    expect(message).not.toContain("HostError");
   });
 
-  it("falls back to the original message for an unknown code", () => {
-    const raw = "HostError: Error(Contract, #999)";
-    expect(friendlyError(new Error(raw))).toBe(raw);
+  it("does not mix overlapping contract codes", () => {
+    expect(friendlyError(soroban(4), "escrow")).toContain("milestone");
+    expect(friendlyError(soroban(4), "dispute")).toContain("dispute's current state");
+    expect(friendlyError(soroban(4), "reputation")).toContain("score");
+    expect(friendlyError(soroban(7), "escrow")).toContain("amount greater than zero");
+    expect(friendlyError(soroban(7), "reputation")).toContain("completed");
   });
 
-  it("falls back for a non-contract error", () => {
-    expect(friendlyError(new Error("Transaction rejected"))).toBe(
-      "Transaction rejected",
-    );
+  it("safely handles unknown codes and arbitrary SDK errors", () => {
+    const unknowns: unknown[] = [
+      soroban(999),
+      new Error("HostError: Error(Contract, #999)\n  at private/path"),
+      new Error("RPC internal stack\n  at secret/path"),
+      "Unrecognized private SDK data",
+      undefined,
+      { toString: () => { throw new Error("secret"); } },
+    ];
+    for (const input of unknowns) {
+      expect(friendlyError(input)).toBe(UNKNOWN_ERROR_MESSAGE);
+    }
+    expect(friendlyError(soroban(23), "escrow")).toBe(UNKNOWN_ERROR_MESSAGE);
+    expect(friendlyError(soroban(15), "dispute")).toBe(UNKNOWN_ERROR_MESSAGE);
+    expect(friendlyError(soroban(11), "reputation")).toBe(UNKNOWN_ERROR_MESSAGE);
+    expect(friendlyError(new Error("HostError: Error(Contract, #17)\n  at secret/path"), "escrow"))
+      .toBe("You can create at most 20 milestones.");
   });
 
-  it("never throws on non-Error values", () => {
-    expect(friendlyError("boom")).toBe("boom");
-    expect(friendlyError(undefined)).toBe("undefined");
+  it("keeps only safe, recognized wallet and network copy", () => {
+    expect(friendlyError(new Error("Wallet not connected"))).toContain("Connect your wallet");
+    expect(friendlyError(new Error("Failed to fetch"))).toContain("Check your connection");
+    expect(friendlyError(new Error("User rejected"))).toContain("cancelled");
+    expect(friendlyError(new Error("Transaction rejected: internal details"))).toBe(UNKNOWN_ERROR_MESSAGE);
+  });
+
+  it("retains the contract scope on multi-contract failures", () => {
+    const wrapped = new ContractCallError(soroban(8), "dispute");
+    expect(wrapped.contract).toBe("dispute");
+    expect(parseContractErrorCode(wrapped.message)).toBe(8);
+    expect(friendlyError(wrapped, wrapped.contract)).toContain("client or freelancer");
   });
 });
 
@@ -79,6 +154,9 @@ describe("classifyReadFailure", () => {
     expect(classifyReadFailure(new Error("HostError: Error(Contract, #12)"))).toBe(
       "unavailable",
     );
+    expect(classifyReadFailure(new Error("HostError: Error(Contract, #3)"), "dispute")).toBe("unavailable");
+    expect(classifyReadFailure(new Error("HostError: Error(Contract, #3)"), "reputation")).toBe("unavailable");
+    expect(classifyReadFailure(new Error("HostError: Error(Contract, #12)"), "reputation")).toBe("unknown");
   });
 
   it("leaves other contract errors as unknown so the message is shown", () => {
@@ -105,7 +183,7 @@ describe("asReadError", () => {
     const error = asReadError(new Error("HostError: Error(Contract, #1)"));
     expect(error).toBeInstanceOf(ContractReadError);
     expect(error.kind).toBe("not-found");
-    expect(error.message).toMatch(/was not found/);
+    expect(error.message).toMatch(/could not be found/);
   });
 });
 
