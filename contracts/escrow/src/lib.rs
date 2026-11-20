@@ -173,7 +173,7 @@ pub struct DisputeContractProposed {
 /// Admin cancelled a pending dispute-contract rotation.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DisputeContractProposalCancelled {
+pub struct DisputeContractCancelled {
     #[topic]
     pub admin: Address,
     pub cancelled_contract: Address,
@@ -325,7 +325,7 @@ impl EscrowContract {
             .remove(&DataKey::PendingDisputeContract);
         Self::extend_instance(&env);
 
-        DisputeContractProposalCancelled {
+        DisputeContractCancelled {
             admin,
             cancelled_contract: pending.new_contract,
         }
@@ -449,6 +449,11 @@ impl EscrowContract {
         // Funds are already committed once the escrow is Active.
         if escrow.status != EscrowStatus::Created {
             return Err(EscrowError::InvalidStatus);
+        }
+        // An expired escrow can never be funded (see `fund`), so refuse to
+        // mutate its milestones either. Same `>=` boundary as the fund check.
+        if env.ledger().timestamp() >= escrow.expiry {
+            return Err(EscrowError::InvalidExpiry);
         }
         if milestones.is_empty() {
             return Err(EscrowError::InvalidMilestones);
