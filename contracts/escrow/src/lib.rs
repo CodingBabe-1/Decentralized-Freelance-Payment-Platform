@@ -450,6 +450,11 @@ impl EscrowContract {
         if escrow.status != EscrowStatus::Created {
             return Err(EscrowError::InvalidStatus);
         }
+        // An expired escrow can never be funded (see `fund`), so refuse to
+        // mutate its milestones either. Same `>=` boundary as the fund check.
+        if env.ledger().timestamp() >= escrow.expiry {
+            return Err(EscrowError::InvalidExpiry);
+        }
         if milestones.is_empty() {
             return Err(EscrowError::InvalidMilestones);
         }
