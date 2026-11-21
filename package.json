@@ -5,6 +5,8 @@
   "description": "Decentralized freelance payment platform on Stellar",
   "scripts": {
     "prepare": "husky",
+    "build:sdk": "node ./backend/node_modules/typescript/bin/tsc -p packages/sdk",
+    "sync:sdk": "node scripts/sync-sdk.js",
     "lint:frontend": "npm --prefix frontend run lint",
     "fmt:contracts": "cargo fmt --manifest-path contracts/Cargo.toml --all -- --check",
     "test:e2e": "npm --prefix backend run test:e2e",

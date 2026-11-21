@@ -20,13 +20,11 @@
 
 import {
   Account,
-  Address,
   BASE_FEE,
   Contract,
   Networks,
   SorobanRpc,
   TransactionBuilder,
-  nativeToScVal,
   scValToNative,
   xdr,
 } from "@stellar/stellar-sdk";
@@ -118,21 +116,18 @@ export const READONLY_SOURCE: string =
   import.meta.env.VITE_READONLY_SOURCE || SIMULATION_ONLY_SOURCE;
 
 // ---------------------------------------------------------------------------
-// ScVal helpers
+// ScVal helpers (re-exported from @stellar-freelance/sdk)
 // ---------------------------------------------------------------------------
 
-export const scAddress = (address: string) => Address.fromString(address).toScVal();
-export const scU64 = (n: bigint) => nativeToScVal(n, { type: "u64" });
-export const scU32 = (n: number) => nativeToScVal(n, { type: "u32" });
-export const scI128 = (n: bigint) => nativeToScVal(n, { type: "i128" });
-/**
- * Soroban `String`, as `dispute.raise`'s `reason` argument.
- *
- * The type is spelled out because it must not be inferred: `nativeToScVal("x")`
- * happens to pick String, but `Symbol` and `Bytes` are one keyword away and both
- * would be rejected by the contract with a type error at simulation time.
- */
-export const scString = (value: string) => nativeToScVal(value, { type: "string" });
+export {
+  scAddress,
+  scU64,
+  scU32,
+  scI128,
+  scString,
+  milestonesToScVal,
+} from "./sdk/scval";
+export type { MilestoneArg as MilestoneInput } from "./sdk/types";
 
 // ---------------------------------------------------------------------------
 // Stroop conversion
@@ -148,43 +143,6 @@ const STROOP_DECIMALS = 7;
 
 export const toStroops = (units: number) => toBaseUnits(units, STROOP_DECIMALS);
 export const fromStroops = (stroops: bigint) => fromBaseUnits(stroops, STROOP_DECIMALS);
-
-export interface MilestoneInput {
-  amount: bigint;
-  deadline: bigint;
-}
-
-/**
- * Encode a list of milestones as the `Vec<Milestone>` the contract expects.
- * Soroban structs are maps keyed by field-name symbols.
- *
- * Entries are emitted in **ascending key order** (`amount`, `deadline`,
- * `released`, `released_amount`): that is the order the Rust SDK produces for a
- * `#[contracttype]` struct and the order `nativeToScVal` sorts to, because the
- * Soroban runtime expects map keys in sorted order. Field-declaration order
- * round-trips fine in tests but can be rejected on-chain, after the fee is
- * spent — the backend's `lib/escrowArgs.ts` mirrors this shape exactly.
- */
-export function milestonesToScVal(milestones: MilestoneInput[]): xdr.ScVal {
-  const encoded = milestones.map((m) =>
-    xdr.ScVal.scvMap([
-      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol("amount"), val: scI128(m.amount) }),
-      new xdr.ScMapEntry({
-        key: xdr.ScVal.scvSymbol("deadline"),
-        val: scU64(m.deadline),
-      }),
-      new xdr.ScMapEntry({
-        key: xdr.ScVal.scvSymbol("released"),
-        val: xdr.ScVal.scvBool(false),
-      }),
-      new xdr.ScMapEntry({
-        key: xdr.ScVal.scvSymbol("released_amount"),
-        val: scI128(0n),
-      }),
-    ]),
-  );
-  return xdr.ScVal.scvVec(encoded);
-}
 
 // ---------------------------------------------------------------------------
 // Transaction pipeline
