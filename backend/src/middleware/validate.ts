@@ -7,7 +7,18 @@ export function validate(schema: ZodSchema): RequestHandler {
   return (req, _res, next) => {
     const result = schema.safeParse(req.body);
     if (!result.success) {
-      return next(new AppError(400, result.error.issues.map((i) => i.message).join(", ")));
+      const details = result.error.issues.map((i) => ({
+        field: i.path.join("."),
+        issue: i.message,
+      }));
+      return next(
+        new AppError(
+          400,
+          result.error.issues.map((i) => i.message).join(", "),
+          "VALIDATION_ERROR",
+          details,
+        ),
+      );
     }
     req.body = result.data;
     next();

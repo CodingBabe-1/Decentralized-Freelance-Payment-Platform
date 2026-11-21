@@ -229,7 +229,7 @@ describe("POST /api/disputes/:id/evidence", () => {
     const res = await request("POST", "/dispute_1/evidence", STRANGER, { note: "note" });
 
     expect(res.status).toBe(403);
-    expect(res.body.error).toBe("Not a participant of this job");
+    expect(res.body.error.message).toBe("Not a participant of this job");
     expect(db.disputeEvidence.create).not.toHaveBeenCalled();
   });
 
@@ -239,7 +239,7 @@ describe("POST /api/disputes/:id/evidence", () => {
     const res = await request("POST", "/dispute_1/evidence", CLIENT, { note: "note" });
 
     expect(res.status).toBe(409);
-    expect(res.body.error).toMatch(/not on-chain yet/);
+    expect(res.body.error.message).toMatch(/not on-chain yet/);
     expect(db.disputeEvidence.create).not.toHaveBeenCalled();
   });
 
@@ -249,7 +249,7 @@ describe("POST /api/disputes/:id/evidence", () => {
     const res = await request("POST", "/dispute_1/evidence", CLIENT, { note: "late note" });
 
     expect(res.status).toBe(409);
-    expect(res.body.error).toBe("Evidence can only be added before arbitration");
+    expect(res.body.error.message).toBe("Evidence can only be added before arbitration");
     expect(db.disputeEvidence.create).not.toHaveBeenCalled();
   });
 

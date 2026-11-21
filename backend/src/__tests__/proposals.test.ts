@@ -140,7 +140,7 @@ describe("Job Proposals API (Issue #63)", () => {
       });
       expect(res.status).toBe(400);
       const json = (await res.json()) as any;
-      expect(json.error).toMatch(/client cannot apply/i);
+      expect(json.error?.message ?? json.error).toMatch(/client cannot apply/i);
     });
 
     it("rejects proposal if job is not open (already assigned or not CREATED)", async () => {
@@ -162,7 +162,7 @@ describe("Job Proposals API (Issue #63)", () => {
       });
       expect(res.status).toBe(400);
       const json = (await res.json()) as any;
-      expect(json.error).toMatch(/not open for proposals/i);
+      expect(json.error?.message ?? json.error).toMatch(/not open for proposals/i);
     });
 
     it("creates a proposal successfully", async () => {
@@ -244,7 +244,7 @@ describe("Job Proposals API (Issue #63)", () => {
 
       expect(res.status).toBe(409);
       const json = (await res.json()) as any;
-      expect(json.error).toMatch(/already applied/i);
+      expect(json.error?.message ?? json.error).toMatch(/already applied/i);
     });
   });
 

@@ -75,7 +75,10 @@ describe("GET /api/users/challenge rate limit", () => {
       expect(blocked.status).toBe(429);
       expect(blocked.headers.get("ratelimit-policy") ?? blocked.headers.get("ratelimit-limit")).toBeTruthy();
       await expect(blocked.json()).resolves.toEqual({
-        error: "Too many authentication attempts. Try again later.",
+        error: {
+          code: "RATE_LIMIT_EXCEEDED",
+          message: "Too many authentication attempts. Try again later.",
+        },
       });
     });
   });
@@ -90,7 +93,10 @@ describe("POST /api/users/auth rate limit", () => {
       const blocked = await authenticate(baseUrl);
       expect(blocked.status).toBe(429);
       await expect(blocked.json()).resolves.toEqual({
-        error: "Too many authentication attempts. Try again later.",
+        error: {
+          code: "RATE_LIMIT_EXCEEDED",
+          message: "Too many authentication attempts. Try again later.",
+        },
       });
     });
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { AppError, DatabaseTimeoutError, errorHandler, isTimeoutError } from "../middleware/errorHandler";
+import { AppError, DatabaseTimeoutError, errorHandler } from "../middleware/errorHandler";
 import type { NextFunction, Request, Response } from "express";
 
 describe("errorHandler", () => {
@@ -37,7 +37,12 @@ describe("errorHandler", () => {
     errorHandler(err, req as Request, res as Response, noopNext);
 
     expect(statusMock).toHaveBeenCalledWith(400);
-    expect(jsonMock).toHaveBeenCalledWith({ error: "Invalid Stellar address" });
+    expect(jsonMock).toHaveBeenCalledWith({
+      error: {
+        code: "BAD_REQUEST",
+        message: "Invalid Stellar address",
+      },
+    });
     expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
 
@@ -48,7 +53,12 @@ describe("errorHandler", () => {
     errorHandler(err, req as Request, res as Response, noopNext);
 
     expect(statusMock).toHaveBeenCalledWith(404);
-    expect(jsonMock).toHaveBeenCalledWith({ error: "Job not found" });
+    expect(jsonMock).toHaveBeenCalledWith({
+      error: {
+        code: "NOT_FOUND",
+        message: "Job not found",
+      },
+    });
     expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
 
@@ -59,7 +69,12 @@ describe("errorHandler", () => {
     errorHandler(err, req as Request, res as Response, noopNext);
 
     expect(statusMock).toHaveBeenCalledWith(500);
-    expect(jsonMock).toHaveBeenCalledWith({ error: "Internal server error" });
+    expect(jsonMock).toHaveBeenCalledWith({
+      error: {
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Internal server error",
+      },
+    });
     expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
 
@@ -70,7 +85,12 @@ describe("errorHandler", () => {
     errorHandler(err, req as Request, res as Response, noopNext);
 
     expect(statusMock).toHaveBeenCalledWith(500);
-    expect(jsonMock).toHaveBeenCalledWith({ error: "Internal server error" });
+    expect(jsonMock).toHaveBeenCalledWith({
+      error: {
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Internal server error",
+      },
+    });
     expect(consoleErrorSpy).toHaveBeenCalledWith("[error] POST /api/jobs/1/assign", err);
   });
 
@@ -81,7 +101,12 @@ describe("errorHandler", () => {
     errorHandler(err, req as Request, res as Response, noopNext);
 
     expect(statusMock).toHaveBeenCalledWith(503);
-    expect(jsonMock).toHaveBeenCalledWith({ error: "Internal server error" });
+    expect(jsonMock).toHaveBeenCalledWith({
+      error: {
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Internal server error",
+      },
+    });
     expect(consoleErrorSpy).toHaveBeenCalledWith("[error] POST /api/jobs/1/assign", err);
   });
 
@@ -91,7 +116,12 @@ describe("errorHandler", () => {
     errorHandler(err, req as Request, res as Response, noopNext);
 
     expect(statusMock).toHaveBeenCalledWith(504);
-    expect(jsonMock).toHaveBeenCalledWith({ error: "Gateway Timeout" });
+    expect(jsonMock).toHaveBeenCalledWith({
+      error: {
+        code: "GATEWAY_TIMEOUT",
+        message: "Gateway Timeout",
+      },
+    });
   });
 
   it("handles Prisma P2024 connection pool timeout error with status 504 Gateway Timeout", () => {
@@ -102,7 +132,12 @@ describe("errorHandler", () => {
     errorHandler(err, req as Request, res as Response, noopNext);
 
     expect(statusMock).toHaveBeenCalledWith(504);
-    expect(jsonMock).toHaveBeenCalledWith({ error: "Gateway Timeout" });
+    expect(jsonMock).toHaveBeenCalledWith({
+      error: {
+        code: "GATEWAY_TIMEOUT",
+        message: "Gateway Timeout",
+      },
+    });
   });
 
   it("handles PostgreSQL 57014 statement_timeout cancellation error with status 504 Gateway Timeout", () => {
@@ -113,6 +148,28 @@ describe("errorHandler", () => {
     errorHandler(err, req as Request, res as Response, noopNext);
 
     expect(statusMock).toHaveBeenCalledWith(504);
-    expect(jsonMock).toHaveBeenCalledWith({ error: "Gateway Timeout" });
+    expect(jsonMock).toHaveBeenCalledWith({
+      error: {
+        code: "GATEWAY_TIMEOUT",
+        message: "Gateway Timeout",
+      },
+    });
+  });
+
+  it("supports custom error code and validation details", () => {
+    const err = new AppError(400, "Validation failed", "VALIDATION_ERROR", [
+      { field: "budget", issue: "Expected positive number" },
+    ]);
+
+    errorHandler(err, req as Request, res as Response, noopNext);
+
+    expect(statusMock).toHaveBeenCalledWith(400);
+    expect(jsonMock).toHaveBeenCalledWith({
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Validation failed",
+        details: [{ field: "budget", issue: "Expected positive number" }],
+      },
+    });
   });
 });

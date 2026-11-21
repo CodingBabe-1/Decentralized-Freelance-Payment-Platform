@@ -194,8 +194,8 @@ describe("GET /api/jobs?tag=", () => {
 
     // A typo must not look like an empty marketplace.
     expect(res.status).toBe(400);
-    expect(String(res.body.error)).toMatch(/Unknown tag/);
-    expect(String(res.body.error)).toContain("web-development");
+    expect(String(res.body.error?.message ?? res.body.error)).toMatch(/Unknown tag/);
+    expect(String(res.body.error?.message ?? res.body.error)).toContain("web-development");
     expect(h.job.findMany).not.toHaveBeenCalled();
   });
 });
@@ -477,7 +477,7 @@ describe("GET /api/jobs filtering and sorting (issue #265)", () => {
     const res = await get("/?createdAfter=not-a-valid-date");
 
     expect(res.status).toBe(400);
-    expect(String(res.body.error)).toMatch(/date/i);
+    expect(String(res.body.error?.message ?? res.body.error)).toMatch(/date/i);
     expect(h.job.findMany).not.toHaveBeenCalled();
   });
 });

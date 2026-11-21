@@ -386,9 +386,11 @@ describe("POST /api/disputes/:id/resolve", () => {
 
     const res = await post("/dispute_1/resolve", ARBITRATOR, split);
 
+    type ErrBody = { error?: { message?: string } | string };
+    const body = res.body as ErrBody;
     expect(res.status).toBe(409);
-    expect(String(res.body.error)).toMatch(/raise/);
-    expect(String(res.body.error)).toMatch(/sync/);
+    expect(String(typeof body.error === "object" ? body.error?.message : body.error)).toMatch(/raise/);
+    expect(String(typeof body.error === "object" ? body.error?.message : body.error)).toMatch(/sync/);
     // Nothing was built: arbitrate has no id to key on.
     expect(builtTxs).toHaveLength(0);
     expect(h.dispute.update).not.toHaveBeenCalled();
@@ -462,7 +464,8 @@ describe("POST /api/disputes/:id/resolve", () => {
     const res = await post("/dispute_1/resolve", ARBITRATOR, split);
 
     expect(res.status).toBe(400);
-    expect(String(res.body.error)).toMatch(/Unknown asset/);
+    const body = res.body as { error?: { message?: string } | string };
+    expect(String(typeof body.error === "object" ? body.error?.message : body.error)).toMatch(/Unknown asset/);
     expect(builtTxs).toHaveLength(0);
     expect(h.dispute.update).not.toHaveBeenCalled();
   });

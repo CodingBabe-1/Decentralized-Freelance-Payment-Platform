@@ -116,8 +116,8 @@ describe("PUT /api/jobs/:id/assign", () => {
     });
 
     expect(res.status).toBe(401);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/Missing authorization header/);
+    const body = (await res.json()) as { error: { message: string; code: string } };
+    expect(body.error.message).toMatch(/Missing authorization header/);
   });
 
   it("returns 400 when freelancerAddress fails validation", async () => {
@@ -132,8 +132,8 @@ describe("PUT /api/jobs/:id/assign", () => {
     });
 
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/Invalid Stellar address/);
+    const body = (await res.json()) as { error: { message: string; code: string } };
+    expect(body.error.message).toMatch(/Invalid Stellar address/);
     expect(db.job.findUnique).not.toHaveBeenCalled();
   });
 
@@ -151,8 +151,8 @@ describe("PUT /api/jobs/:id/assign", () => {
     });
 
     expect(res.status).toBe(404);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toBe("Job not found");
+    const body = (await res.json()) as { error: { message: string; code: string } };
+    expect(body.error.message).toBe("Job not found");
   });
 
   it("returns 403 when caller is not the job's client", async () => {
@@ -174,8 +174,8 @@ describe("PUT /api/jobs/:id/assign", () => {
     });
 
     expect(res.status).toBe(403);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toBe("Only the client can assign a freelancer");
+    const body = (await res.json()) as { error: { message: string; code: string } };
+    expect(body.error.message).toBe("Only the client can assign a freelancer");
   });
 
   it("returns 400 when the job is already assigned to a freelancer", async () => {
@@ -197,8 +197,8 @@ describe("PUT /api/jobs/:id/assign", () => {
     });
 
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toBe("Job is already assigned to a freelancer");
+    const body = (await res.json()) as { error: { message: string; code: string } };
+    expect(body.error.message).toBe("Job is already assigned to a freelancer");
     // The auth lookup is expected; the handler must not go on to look the new
     // freelancer up.
     expect(
@@ -229,8 +229,8 @@ describe("PUT /api/jobs/:id/assign", () => {
     });
 
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toBe("Client cannot be assigned as freelancer to their own job");
+    const body = (await res.json()) as { error: { message: string; code: string } };
+    expect(body.error.message).toBe("Client cannot be assigned as freelancer to their own job");
     // Only the auth lookup runs; the handler rejects before resolving a profile.
     expect(db.user.findUnique).toHaveBeenCalledTimes(1);
     expect(db.job.update).not.toHaveBeenCalled();
@@ -259,8 +259,8 @@ describe("PUT /api/jobs/:id/assign", () => {
     });
 
     expect(res.status).toBe(404);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toBe("Freelancer not found");
+    const body = (await res.json()) as { error: { message: string; code: string } };
+    expect(body.error.message).toBe("Freelancer not found");
     expect(db.job.update).not.toHaveBeenCalled();
   });
 

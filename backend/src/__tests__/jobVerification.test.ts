@@ -99,8 +99,8 @@ describe("Job Verification API (issue #314)", () => {
     });
 
     expect(res.status).toBe(403);
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toContain("Only a configured admin can verify jobs");
+    const body = (await res.json()) as { error?: { message?: string } };
+    expect(body.error?.message).toContain("Only a configured admin can verify jobs");
   });
 
   it("allows configured admin to verify a job with default verificationSource", async () => {

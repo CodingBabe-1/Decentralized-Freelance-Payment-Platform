@@ -125,7 +125,7 @@ describe("Idempotency Middleware (issue #267)", () => {
     });
 
     expect(res2.status).toBe(422);
-    const body2 = (await res2.json()) as { error: string };
-    expect(body2.error).toMatch(/idempotency key already used/i);
+    const body2 = (await res2.json()) as { error: { message: string } };
+    expect(body2.error.message).toMatch(/idempotency key already used/i);
   });
 });

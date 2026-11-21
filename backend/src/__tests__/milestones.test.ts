@@ -137,7 +137,7 @@ describe("Milestone Deliverables API (Issue #65)", () => {
       });
       expect(res.status).toBe(403);
       const json = (await res.json()) as any;
-      expect(json.error).toMatch(/only the assigned freelancer/i);
+      expect(json.error?.message ?? json.error).toMatch(/only the assigned freelancer/i);
     });
 
     it("rejects if milestone is already released with 400", async () => {
@@ -162,7 +162,7 @@ describe("Milestone Deliverables API (Issue #65)", () => {
       });
       expect(res.status).toBe(400);
       const json = (await res.json()) as any;
-      expect(json.error).toMatch(/already released/i);
+      expect(json.error?.message ?? json.error).toMatch(/already released/i);
     });
 
     it("attaches deliverable file successfully", async () => {

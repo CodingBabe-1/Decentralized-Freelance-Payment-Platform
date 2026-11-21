@@ -32,7 +32,10 @@ export function createAuthRateLimiter(options: {
     standardHeaders: true,
     legacyHeaders: false,
     message: {
-      error: "Too many authentication attempts. Try again later.",
+      error: {
+        code: "RATE_LIMIT_EXCEEDED",
+        message: "Too many authentication attempts. Try again later.",
+      },
     },
     store: options.store,
   });

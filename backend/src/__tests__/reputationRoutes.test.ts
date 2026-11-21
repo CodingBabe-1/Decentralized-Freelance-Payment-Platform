@@ -20,6 +20,8 @@ import { Keypair } from "@stellar/stellar-sdk";
 import { SignJWT } from "jose";
 import { Prisma } from "@prisma/client";
 
+type ErrBody = { error?: { message?: string } | string };
+
 const RATER = Keypair.random().publicKey();
 const RATEE = Keypair.random().publicKey();
 const STRANGER = Keypair.random().publicKey();
@@ -177,7 +179,8 @@ describe("POST /api/reputation — duplicate rating handling", () => {
     const res = await postRating({ jobId: "job_1", rateeAddress: RATEE, score: 5 });
 
     expect(res.status).toBe(409);
-    expect(String(res.body.error)).toMatch(/already rated/i);
+    const b1 = res.body as ErrBody;
+    expect(String(typeof b1.error === "object" ? b1.error?.message : b1.error)).toMatch(/already rated/i);
     // Nothing was built: the check fires before the chain call.
     expect(h.rating.create).not.toHaveBeenCalled();
   });
@@ -195,7 +198,8 @@ describe("POST /api/reputation — duplicate rating handling", () => {
     const res = await postRating({ jobId: "job_1", rateeAddress: RATEE, score: 3 });
 
     expect(res.status).toBe(409);
-    expect(String(res.body.error)).toMatch(/already rated/i);
+    const b2 = res.body as ErrBody;
+    expect(String(typeof b2.error === "object" ? b2.error?.message : b2.error)).toMatch(/already rated/i);
   });
 
   it("handles simultaneous concurrent submissions gracefully with 409 conflict for the second request", async () => {
@@ -239,7 +243,8 @@ describe("POST /api/reputation — duplicate rating handling", () => {
     const res = await postRating({ jobId: "job_1", rateeAddress: STRANGER, score: 5 });
 
     expect(res.status).toBe(400);
-    expect(String(res.body.error)).toMatch(/other participant/i);
+    const b3 = res.body as ErrBody;
+    expect(String(typeof b3.error === "object" ? b3.error?.message : b3.error)).toMatch(/other participant/i);
     // Nothing was persisted: an invalid rating must not leave a row behind.
     expect(h.rating.create).not.toHaveBeenCalled();
   });
@@ -248,7 +253,8 @@ describe("POST /api/reputation — duplicate rating handling", () => {
     const res = await postRating({ jobId: "job_1", rateeAddress: RATEE, score: 5 }, STRANGER);
 
     expect(res.status).toBe(403);
-    expect(String(res.body.error)).toMatch(/not a participant/i);
+    const b4 = res.body as ErrBody;
+    expect(String(typeof b4.error === "object" ? b4.error?.message : b4.error)).toMatch(/not a participant/i);
     expect(h.rating.create).not.toHaveBeenCalled();
   });
 
@@ -256,7 +262,8 @@ describe("POST /api/reputation — duplicate rating handling", () => {
     const res = await postRating({ jobId: "job_1", rateeAddress: RATER, score: 5 });
 
     expect(res.status).toBe(400);
-    expect(String(res.body.error)).toMatch(/other participant/i);
+    const b5 = res.body as ErrBody;
+    expect(String(typeof b5.error === "object" ? b5.error?.message : b5.error)).toMatch(/other participant/i);
     expect(h.rating.create).not.toHaveBeenCalled();
   });
 
@@ -273,9 +280,10 @@ describe("POST /api/reputation — duplicate rating handling", () => {
     const res = await postRating({ jobId: "job_1", rateeAddress: RATEE, score: 5 });
 
     expect(res.status).toBe(400);
+    const b6 = res.body as ErrBody;
     // The raw HostError is translated; no "Error(Contract" in the response.
-    expect(String(res.body.error)).not.toMatch(/Error\(Contract/);
-    expect(String(res.body.error)).toMatch(/already rated/i);
+    expect(String(typeof b6.error === "object" ? b6.error?.message : b6.error)).not.toMatch(/Error\(Contract/);
+    expect(String(typeof b6.error === "object" ? b6.error?.message : b6.error)).toMatch(/already rated/i);
     expect(h.rating.create).not.toHaveBeenCalled();
   });
 });

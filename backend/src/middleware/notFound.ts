@@ -19,5 +19,10 @@ import { RequestHandler } from "express";
  * one error contract to parse regardless of status code.
  */
 export const notFoundHandler: RequestHandler = (_req, res) => {
-  res.status(404).json({ error: "Not found" });
+  res.status(404).json({
+    error: {
+      code: "NOT_FOUND",
+      message: "Not found",
+    },
+  });
 };

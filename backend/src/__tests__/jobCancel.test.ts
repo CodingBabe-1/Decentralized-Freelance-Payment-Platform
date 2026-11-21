@@ -117,7 +117,7 @@ describe("POST /api/jobs/:id/cancel", () => {
     const res = await cancel("job_missing");
 
     expect(res.status).toBe(404);
-    expect(res.body.error).toBe("Job not found");
+    expect(res.body.error.message).toBe("Job not found");
     expect(db.job.update).not.toHaveBeenCalled();
   });
 
@@ -127,7 +127,7 @@ describe("POST /api/jobs/:id/cancel", () => {
     const res = await cancel("job_1", STRANGER);
 
     expect(res.status).toBe(403);
-    expect(res.body.error).toBe("Only the client can cancel this job");
+    expect(res.body.error.message).toBe("Only the client can cancel this job");
     expect(db.job.update).not.toHaveBeenCalled();
   });
 
@@ -138,7 +138,7 @@ describe("POST /api/jobs/:id/cancel", () => {
 
     // 409: the request is well-formed but the job is in the wrong state.
     expect(res.status).toBe(409);
-    expect(res.body.error).toMatch(/unfunded CREATED job/);
+    expect(res.body.error.message).toMatch(/unfunded CREATED job/);
     expect(db.job.update).not.toHaveBeenCalled();
     expect(db.proposal.updateMany).not.toHaveBeenCalled();
   });

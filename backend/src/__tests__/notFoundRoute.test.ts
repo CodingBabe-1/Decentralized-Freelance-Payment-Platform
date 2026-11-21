@@ -42,18 +42,33 @@ describe("unknown routes", () => {
     expect(res.status).toBe(404);
     // The regression guard: Express's HTML final handler sends text/html.
     expect(res.headers.get("content-type")).toContain("application/json");
-    expect(await res.json()).toEqual({ error: "Not found" });
+    expect(await res.json()).toEqual({
+      error: {
+        code: "NOT_FOUND",
+        message: "Not found",
+      },
+    });
   });
 
   it("keeps the JSON shape for unknown non-API paths and other methods", async () => {
     const get = await fetch(`${baseUrl}/nope`);
     expect(get.status).toBe(404);
     expect((get.headers.get("content-type") ?? "").includes("application/json")).toBe(true);
-    expect(await get.json()).toEqual({ error: "Not found" });
+    expect(await get.json()).toEqual({
+      error: {
+        code: "NOT_FOUND",
+        message: "Not found",
+      },
+    });
 
     const post = await fetch(`${baseUrl}/api/jobs/not-a-real-sub-route`, { method: "POST" });
     expect(post.status).toBe(404);
-    expect(await post.json()).toEqual({ error: "Not found" });
+    expect(await post.json()).toEqual({
+      error: {
+        code: "NOT_FOUND",
+        message: "Not found",
+      },
+    });
   });
 
   it("still answers a real route normally", async () => {

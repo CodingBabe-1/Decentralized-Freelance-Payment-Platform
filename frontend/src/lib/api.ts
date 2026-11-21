@@ -35,6 +35,39 @@ export function clearAuthToken(address?: string): void {
   else tokenCache.delete(address);
 }
 
+export interface ApiErrorDetail {
+  field: string;
+  issue: string;
+}
+
+export interface ApiErrorPayload {
+  code?: string;
+  message?: string;
+  details?: ApiErrorDetail[];
+}
+
+/** Extracts a user-facing error message from standardized error envelopes or legacy errors. */
+export function extractErrorMessage(errorData: unknown, fallback: string): string {
+  if (!errorData || typeof errorData !== "object") return fallback;
+  const anyData = errorData as Record<string, unknown>;
+  const err = anyData.error ?? anyData.message;
+  if (typeof err === "string" && err.trim().length > 0) return err;
+  if (typeof err === "object" && err !== null) {
+    const errorObj = err as ApiErrorPayload;
+    if (typeof errorObj.message === "string" && errorObj.message.trim().length > 0) {
+      if (Array.isArray(errorObj.details) && errorObj.details.length > 0) {
+        const issues = errorObj.details
+          .map((d) => (d.field ? `${d.field}: ${d.issue}` : d.issue))
+          .filter(Boolean)
+          .join(", ");
+        if (issues) return `${errorObj.message}: ${issues}`;
+      }
+      return errorObj.message;
+    }
+  }
+  return fallback;
+}
+
 export interface JobListQuery {
   status?: string;
   client?: string;
@@ -251,8 +284,8 @@ export async function submitProposal(
     body: JSON.stringify(input),
   });
   if (!res.ok) {
-    const errorData = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(errorData?.error ?? `Could not submit proposal (HTTP ${res.status})`);
+    const errorData = await res.json().catch(() => null);
+    throw new Error(extractErrorMessage(errorData, `Could not submit proposal (HTTP ${res.status})`));
   }
   return (await res.json()) as ProposalApi;
 }
@@ -272,8 +305,8 @@ export async function assignFreelancer(
     body: JSON.stringify({ freelancerAddress }),
   });
   if (!res.ok) {
-    const errorData = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(errorData?.error ?? `Could not assign freelancer (HTTP ${res.status})`);
+    const errorData = await res.json().catch(() => null);
+    throw new Error(extractErrorMessage(errorData, `Could not assign freelancer (HTTP ${res.status})`));
   }
   return (await res.json()) as JobApi;
 }
@@ -290,8 +323,8 @@ export async function cancelJob(jobId: string, token: string): Promise<JobApi> {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {
-    const errorData = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(errorData?.error ?? `Could not cancel the job (HTTP ${res.status})`);
+    const errorData = await res.json().catch(() => null);
+    throw new Error(extractErrorMessage(errorData, `Could not cancel the job (HTTP ${res.status})`));
   }
   return (await res.json()) as JobApi;
 }
@@ -794,8 +827,8 @@ export async function addDisputeEvidence(
     },
   );
   if (!res.ok) {
-    const errorData = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(errorData?.error ?? `Could not add dispute evidence (HTTP ${res.status})`);
+    const errorData = await res.json().catch(() => null);
+    throw new Error(extractErrorMessage(errorData, `Could not add dispute evidence (HTTP ${res.status})`));
   }
   return (await res.json()) as DisputeEvidenceApi;
 }
@@ -1030,8 +1063,8 @@ export async function uploadDeliverable(
     },
   );
   if (!res.ok) {
-    const errorData = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(errorData?.error ?? `Could not upload deliverable (HTTP ${res.status})`);
+    const errorData = await res.json().catch(() => null);
+    throw new Error(extractErrorMessage(errorData, `Could not upload deliverable (HTTP ${res.status})`));
   }
   return (await res.json()) as DeliverableApi;
 }
@@ -1061,8 +1094,8 @@ export async function uploadJobMilestoneDeliverable(
     },
   );
   if (!res.ok) {
-    const errorData = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(errorData?.error ?? `Could not upload deliverable (HTTP ${res.status})`);
+    const errorData = await res.json().catch(() => null);
+    throw new Error(extractErrorMessage(errorData, `Could not upload deliverable (HTTP ${res.status})`));
   }
   return (await res.json()) as DeliverableApi;
 }

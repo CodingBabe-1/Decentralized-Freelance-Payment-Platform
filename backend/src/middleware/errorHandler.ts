@@ -1,15 +1,63 @@
 import { ErrorRequestHandler } from "express";
 
+export interface ErrorDetail {
+  field: string;
+  issue: string;
+}
+
+export interface StandardErrorPayload {
+  code: string;
+  message: string;
+  details?: ErrorDetail[];
+}
+
+export interface StandardErrorResponse {
+  error: StandardErrorPayload;
+}
+
+export function defaultCodeForStatus(status: number): string {
+  switch (status) {
+    case 400:
+      return "BAD_REQUEST";
+    case 401:
+      return "UNAUTHORIZED";
+    case 403:
+      return "FORBIDDEN";
+    case 404:
+      return "NOT_FOUND";
+    case 409:
+      return "CONFLICT";
+    case 422:
+      return "UNPROCESSABLE_ENTITY";
+    case 429:
+      return "RATE_LIMIT_EXCEEDED";
+    case 504:
+      return "GATEWAY_TIMEOUT";
+    default:
+      return status >= 500 ? "INTERNAL_SERVER_ERROR" : "ERROR";
+  }
+}
+
 export class AppError extends Error {
-  constructor(public statusCode: number, message: string) {
+  public code: string;
+  public details?: ErrorDetail[];
+
+  constructor(
+    public statusCode: number,
+    message: string,
+    code?: string,
+    details?: ErrorDetail[],
+  ) {
     super(message);
     this.name = "AppError";
+    this.code = code || defaultCodeForStatus(statusCode);
+    this.details = details;
   }
 }
 
 export class DatabaseTimeoutError extends AppError {
   constructor(message = "Gateway Timeout") {
-    super(504, message);
+    super(504, message, "GATEWAY_TIMEOUT");
     this.name = "DatabaseTimeoutError";
   }
 }
@@ -55,11 +103,27 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
         ? (err as Error).message
         : "Internal server error";
 
+  const code = isTimeout
+    ? "GATEWAY_TIMEOUT"
+    : err instanceof AppError
+      ? err.code
+      : "INTERNAL_SERVER_ERROR";
+
+  const details = err instanceof AppError ? err.details : undefined;
+
   if (status >= 500 && process.env.NODE_ENV !== "test") {
     console.error(`[error] ${req.method} ${req.path}`, err);
   }
 
-  res.status(status).json({ error: message });
+  const payload: StandardErrorResponse = {
+    error: {
+      code,
+      message,
+      ...(details && details.length > 0 ? { details } : {}),
+    },
+  };
+
+  res.status(status).json(payload);
 };
 
 

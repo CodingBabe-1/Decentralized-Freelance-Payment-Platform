@@ -53,7 +53,10 @@ export function idempotency(options: { ttlMs?: number } = {}): RequestHandler {
     if (cached && now < cached.expiresAt) {
       if (cached.payloadHash !== payloadHash) {
         return res.status(422).json({
-          error: "Idempotency key already used with different request parameters",
+          error: {
+            code: "IDEMPOTENCY_CONFLICT",
+            message: "Idempotency key already used with different request parameters",
+          },
         });
       }
 

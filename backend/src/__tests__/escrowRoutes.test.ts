@@ -307,7 +307,8 @@ describe("POST /api/escrow/build/create — job asset", () => {
     });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe("Unknown asset: DOGE");
+    const body = res.body as { error?: { message?: string } | string };
+    expect(typeof body.error === "object" ? body.error?.message : body.error).toBe("Unknown asset: DOGE");
     expect(h.buildCreateArgs).not.toHaveBeenCalled();
   });
 });
@@ -375,7 +376,8 @@ describe("Milestone updates deliverable preservation (issue #270)", () => {
     });
 
     expect(res.status).toBe(400);
-    expect(String(res.body.error)).toMatch(/deliverables/i);
+    const body = res.body as { error?: { message?: string } | string };
+    expect(String(typeof body.error === "object" ? body.error?.message : body.error)).toMatch(/deliverables/i);
     expect(h.milestone.deleteMany).not.toHaveBeenCalled();
   });
 
@@ -400,7 +402,8 @@ describe("Milestone updates deliverable preservation (issue #270)", () => {
     });
 
     expect(res.status).toBe(400);
-    expect(String(res.body.error)).toMatch(/deliverables/i);
+    const body = res.body as { error?: { message?: string } | string };
+    expect(String(typeof body.error === "object" ? body.error?.message : body.error)).toMatch(/deliverables/i);
   });
 
   it("allows PUT /:escrowId/milestones when no deliverables are attached", async () => {
@@ -476,7 +479,8 @@ describe("POST /api/escrow/build/milestones-batch (issue #266)", () => {
     });
 
     expect(res.status).toBe(400);
-    expect(String(res.body.error)).toMatch(/count must be between 1 and 20/i);
+    const body = res.body as { error?: { message?: string } | string };
+    expect(String(typeof body.error === "object" ? body.error?.message : body.error)).toMatch(/count must be between 1 and 20/i);
   });
 
   it("rejects batch resulting in more than 20 milestones", async () => {
@@ -494,7 +498,8 @@ describe("POST /api/escrow/build/milestones-batch (issue #266)", () => {
     });
 
     expect(res.status).toBe(400);
-    expect(String(res.body.error)).toMatch(/count must be between 1 and 20/i);
+    const b2 = res.body as { error?: { message?: string } | string };
+    expect(String(typeof b2.error === "object" ? b2.error?.message : b2.error)).toMatch(/count must be between 1 and 20/i);
   });
 
   it("rejects operations with out-of-bounds indices", async () => {
@@ -506,6 +511,7 @@ describe("POST /api/escrow/build/milestones-batch (issue #266)", () => {
     });
 
     expect(res.status).toBe(400);
-    expect(String(res.body.error)).toMatch(/invalid index/i);
+    const b3 = res.body as { error?: { message?: string } | string };
+    expect(String(typeof b3.error === "object" ? b3.error?.message : b3.error)).toMatch(/invalid index/i);
   });
 });

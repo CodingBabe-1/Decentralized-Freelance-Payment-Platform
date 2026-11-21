@@ -279,8 +279,8 @@ describe("session revocation and token version invalidation (Issue #282)", () =>
       headers: { Authorization: `Bearer ${tokenA}` },
     });
     expect(meResAfter.status).toBe(401);
-    const meErrAfter = (await meResAfter.json()) as { error?: string };
-    expect(meErrAfter.error).toContain("Token has been revoked");
+    const meErrAfter = (await meResAfter.json()) as { error?: { message?: string } };
+    expect(meErrAfter.error?.message).toContain("Token has been revoked");
 
     // 5. Re-authenticate: client obtains new Token B with updated version (v: 1)
     const tokenB = await createToken(ADDRESS, 1);
@@ -310,8 +310,8 @@ describe("session revocation and token version invalidation (Issue #282)", () =>
       headers: { Authorization: `Bearer ${olderToken}` },
     });
     expect(olderRes.status).toBe(401);
-    const olderBody = (await olderRes.json()) as { error?: string };
-    expect(olderBody.error).toContain("Token has been revoked");
+    const olderBody = (await olderRes.json()) as { error?: { message?: string } };
+    expect(olderBody.error?.message).toContain("Token has been revoked");
 
     const currentRes = await fetch(`${baseUrl}/api/users/me`, {
       headers: { Authorization: `Bearer ${currentToken}` },
@@ -328,8 +328,8 @@ describe("session revocation and token version invalidation (Issue #282)", () =>
       headers: { Authorization: `Bearer ${unversionedToken}` },
     });
     expect(res.status).toBe(401);
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toContain("Token has been revoked");
+    const body = (await res.json()) as { error?: { message?: string } };
+    expect(body.error?.message).toContain("Token has been revoked");
   });
 
   it("rejects token for a user that no longer exists in database", async () => {
@@ -340,7 +340,7 @@ describe("session revocation and token version invalidation (Issue #282)", () =>
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.status).toBe(401);
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toContain("User not found");
+    const body = (await res.json()) as { error?: { message?: string } };
+    expect(body.error?.message).toContain("User not found");
   });
 });
